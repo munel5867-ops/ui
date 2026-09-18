@@ -1,0 +1,10 @@
+streamlit>=1.64
+pandas
+numpy
+pillow
+plotly
+python-docx
+
+# --- STAGE4 실제 모델(EfficientNetB0, Keras/TensorFlow) 연동용 ---
+tensorflow
+matplotlib
