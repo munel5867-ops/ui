@@ -1,7 +1,3 @@
-# 모델 가중치 (파일 크기가 커서 git으로 관리하지 않음 - 팀원끼리는 구글드라이브 등으로 공유)
-weights/*.h5
-weights/*.weights.h5
-
 # Python
 __pycache__/
 *.pyc
