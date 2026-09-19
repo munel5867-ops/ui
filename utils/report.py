@@ -12,8 +12,8 @@ def build_weekly_report_docx(
     total_count: int,
     automation_rate: float,
     human_review_count: int,
-    d1_miss_count: int,
-    d4_miss_count: int,
+    crack_or_lop_miss_count: int,
+    porosity_miss_count: int,
     anomaly_note: str,
     recommendation: str,
 ) -> bytes:
@@ -34,8 +34,8 @@ def build_weekly_report_docx(
         ("총 검사 물량", f"{total_count:,}건"),
         ("자동화율", f"{automation_rate:.1%}"),
         ("사람 확인 건수", f"{human_review_count:,}건"),
-        ("D1(균열) 미검출", f"{d1_miss_count}건"),
-        ("D4(미용착) 미검출", f"{d4_miss_count}건"),
+        ("균열·용입불량(D1+D4) 미검출", f"{crack_or_lop_miss_count}건"),
+        ("기공(D2) 미검출", f"{porosity_miss_count}건"),
     ]
     for k, v in rows:
         cells = table.add_row().cells

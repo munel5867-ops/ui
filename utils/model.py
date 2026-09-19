@@ -9,6 +9,14 @@ Colab 학습/검증 스크립트(구글드라이브의
 가중치 파일 5개(`efficientnetb0_filmopt_fold0~4_last.weights.h5`)는 용량이 커서(각 ~16MB)
 Claude가 대신 받아줄 수 없다 — 구글드라이브에서 직접 내려받아 이 프로젝트의 weights/ 폴더에
 넣어야 한다. (자세한 안내는 채팅 답변 참고)
+
+STAGE3 갱신 — 이 가중치들은 여전히 원래 학습된 "4클래스 개별(Difetto1/2/4/NoDifetto)"
+백본 동결 모델이다 (미세조정된 새 가중치가 아직 없음). 다만 STAGE3 보고서에서 균열(D1)·
+미용착(D4)을 하나의 판정 범주로 통합하기로 했으므로, 모델 자체는 그대로 4클래스 raw
+확률을 뽑되 이 파일에서 D1+D4를 더해 최종적으로 3클래스(무결함/균열·용입불량/기공)로
+합쳐서 반환한다. utils/routing.py의 CRACK_OR_LOP_T 기본값(0.1982)도 이 "기저모델 통합"
+기준으로 맞춰져 있다 — 나중에 미세조정된 새 가중치가 들어오면 그 가중치는 원래부터
+3클래스로 나올 가능성이 높으니, 그때 이 병합 로직을 다시 확인할 것.
 """
 import os
 
@@ -27,10 +35,14 @@ WEIGHTS_TEMPLATE = "efficientnetb0_filmopt_fold{fold}_last.weights.h5"
 # 학습 시 sorted(os.listdir(train_dir))로 정해진 실제 클래스 순서.
 # 모델 출력(softmax) 벡터의 인덱스 순서가 이 순서와 정확히 일치해야 함 — 절대 바꾸지 말 것.
 CLASS_NAMES = ["Difetto1", "Difetto2", "Difetto4", "NoDifetto"]
+
+# raw 4클래스 -> 최종 표시용 3클래스 매핑. Difetto1·Difetto4가 같은 값으로 매핑되므로
+# predict_ensemble()에서 두 확률을 명시적으로 더해야 한다 (dict 컴프리헨션으로 덮어쓰면
+# 하나가 사라지니 주의).
 LABEL_KR = {
-    "Difetto1": "균열(D1)",
+    "Difetto1": "균열·용입불량(D1+D4)",
+    "Difetto4": "균열·용입불량(D1+D4)",
     "Difetto2": "기공(D2)",
-    "Difetto4": "미용착(D4)",
     "NoDifetto": "무결함",
 }
 
@@ -89,6 +101,8 @@ def _preprocess(pil_image: Image.Image):
 def predict_ensemble(pil_image: Image.Image):
     """5-fold 모델의 softmax 확률을 평균 앙상블 (STAGE2 Track A와 동일한 방식 — 엄격한
     OOF 대신 5개 fold를 전부 평균해서 쓰는 간소화된 방법).
+    STAGE3 통합: raw 4클래스(Difetto1/2/4/NoDifetto) 확률을 낸 다음, Difetto1+Difetto4를
+    더해 최종적으로 3클래스(무결함/균열·용입불량(D1+D4)/기공(D2))로 합쳐서 반환한다.
     반환: (probs 딕셔너리 또는 None, 없는 가중치 파일 목록)"""
     models, missing = load_fold_models()
     if not models:
@@ -97,7 +111,13 @@ def predict_ensemble(pil_image: Image.Image):
     _, batch = _preprocess(pil_image)
     all_preds = [m.predict(batch, verbose=0)[0] for m, _ in models]
     avg_preds = np.mean(all_preds, axis=0)
-    probs = {LABEL_KR[c]: float(p) for c, p in zip(CLASS_NAMES, avg_preds)}
+    raw = dict(zip(CLASS_NAMES, avg_preds))
+
+    probs = {
+        "무결함": float(raw["NoDifetto"]),
+        "균열·용입불량(D1+D4)": float(raw["Difetto1"] + raw["Difetto4"]),
+        "기공(D2)": float(raw["Difetto2"]),
+    }
     return probs, missing
 
 
@@ -116,6 +136,9 @@ def _gradcam_heatmap(grad_model: tf.keras.Model, img_batch: np.ndarray, pred_ind
 
 def gradcam_overlay(pil_image: Image.Image):
     """5개 fold의 Grad-CAM 히트맵을 평균(앙상블)해서 원본 위에 합성한 오버레이 이미지를 만든다.
+    argmax는 raw 4클래스 기준으로 구하되(Grad-CAM은 특정 클래스 로짓을 기준으로 계산해야
+    하므로), 표시용 라벨은 LABEL_KR로 통합 클래스명으로 바뀐다(Difetto1·Difetto4 둘 다
+    "균열·용입불량(D1+D4)"로 표시됨).
     반환: (오버레이 RGB 배열 또는 None, 예측 클래스명(한글) 또는 없는 가중치 파일 목록)"""
     models, missing = load_fold_models()
     if not models:

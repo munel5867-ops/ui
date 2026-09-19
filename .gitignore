@@ -5,6 +5,11 @@ weights/*.weights.h5
 # 검사자 결정 로그 (로컬 실행 시마다 쌓이는 개인 실행 기록 — 공유용 아님)
 decision_log.csv
 
+# 대표 샘플 원본 백업(zip)과 그 압축을 푼 전체 데이터셋 — 용량이 너무 커서(수백MB, 파일 수천 개)
+# GitHub에 올리면 push가 실패한다. samples/ 폴더에는 대표 이미지 몇 장만 커밋 대상으로 남긴다.
+samples/riawelc_filmsplit_backup.zip
+samples/riawelc_filmsplit_backup/
+
 # Python
 __pycache__/
 *.pyc

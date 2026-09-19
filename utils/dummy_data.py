@@ -1,12 +1,15 @@
 """
 STAGE4/5 실제 모델·데이터가 붙기 전까지 UI를 시연하기 위한 더미 데이터 생성 모듈.
 나중에 실제 모델 추론 결과 / DB 조회로 교체할 함수들의 경계를 여기로 맞춰뒀다.
+
+STAGE3에서 균열(D1)·미용착(D4)을 "균열·용입불량(D1+D4)" 한 클래스로 통합했으므로
+더미 데이터도 3클래스 기준으로 맞춘다 (실제 모델 쪽은 utils/model.py 참고).
 """
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-LABELS = ["무결함", "균열(D1)", "기공(D2)", "미용착(D4)"]
+LABELS = ["무결함", "균열·용입불량(D1+D4)", "기공(D2)"]
 
 
 @st.cache_data
@@ -18,7 +21,7 @@ def load_validation_predictions(n: int = 2000, seed: int = 42) -> pd.DataFrame:
     임계값 비교만 실시간으로 하는 구조를 유지할 것.
     """
     rng = np.random.default_rng(seed)
-    true_label = rng.choice(LABELS, size=n, p=[0.82, 0.05, 0.05, 0.08])
+    true_label = rng.choice(LABELS, size=n, p=[0.82, 0.13, 0.05])
 
     probs = np.zeros((n, len(LABELS)))
     for i, label in enumerate(true_label):
@@ -35,8 +38,9 @@ def load_validation_predictions(n: int = 2000, seed: int = 42) -> pd.DataFrame:
 
 @st.cache_data
 def demo_single_prediction() -> dict:
-    """1탭 데모용 단일 이미지의 고정 예측값 (목업 수치와 동일하게 맞춤)."""
-    return {"무결함": 0.08, "균열(D1)": 0.22, "기공(D2)": 0.09, "미용착(D4)": 0.61}
+    """1탭 데모용 단일 이미지의 고정 예측값 (구 4클래스 목업의 균열(D1)+미용착(D4)을
+    그대로 합산해 3클래스로 맞춤 — 0.22+0.61=0.83)."""
+    return {"무결함": 0.08, "균열·용입불량(D1+D4)": 0.83, "기공(D2)": 0.09}
 
 
 @st.cache_data

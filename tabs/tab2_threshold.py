@@ -49,9 +49,12 @@ def render():
     with col1:
         with st.container(border=True):
             st.subheader("라우팅 임계값 조절")
+            st.caption("STAGE3부터 균열(D1)·미용착(D4)을 하나로 통합 — 자세한 근거는 STAGE3 최종보고서 참고")
             _linked_slider_number("ND_CONFIDENT (무결함 자동통과 기준)", "nd_confident", thresholds, 0.50, 1.00)
-            _linked_slider_number("ATTENTION_T (균열계열 의심 기준)", "attention_t", thresholds, 0.00, 0.50)
-            _linked_slider_number("CONFIDENT_T (자동배출 기준)", "confident_t", thresholds, 0.30, 0.90)
+            _linked_slider_number(
+                "CRACK_OR_LOP_T (균열·용입불량 통합 자동배출 기준)", "crack_or_lop_t", thresholds, 0.00, 0.50
+            )
+            _linked_slider_number("POROSITY_T (기공 자동배출 기준)", "porosity_t", thresholds, 0.30, 0.90)
 
     with col2:
         with st.container(border=True):
@@ -64,9 +67,9 @@ def render():
             m2.metric("사람 확인 비율", f"{kpis['human_review_rate']:.1%}")
 
             m3, m4 = st.columns(2)
-            m3.metric("D1(균열) 미검출률", f"{kpis['d1_miss_rate']:.1%}",
-                       delta=None if kpis["d1_miss_rate"] == 0 else "주의", delta_color="inverse")
-            m4.metric("D4(미용착) 미검출률", f"{kpis['d4_miss_rate']:.1%}",
-                       delta=None if kpis["d4_miss_rate"] == 0 else "주의", delta_color="inverse")
+            m3.metric("균열·용입불량 미검출률", f"{kpis['crack_or_lop_miss_rate']:.1%}",
+                       delta=None if kpis["crack_or_lop_miss_rate"] == 0 else "주의", delta_color="inverse")
+            m4.metric("기공 미검출률", f"{kpis['porosity_miss_rate']:.1%}",
+                       delta=None if kpis["porosity_miss_rate"] == 0 else "주의", delta_color="inverse")
 
             st.caption(f"검증셋 {kpis['n']:,}건 기준 (현재 더미 검증셋)")
