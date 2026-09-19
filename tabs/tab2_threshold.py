@@ -47,28 +47,26 @@ def render():
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("라우팅 임계값 조절 (STAGE3 파라미터)")
-        st.caption("슬라이더를 움직이거나, 오른쪽 칸에 숫자를 직접 입력해도 됩니다 (둘 다 연동됨).")
-
-        _linked_slider_number("ND_CONFIDENT (무결함 자동통과 기준)", "nd_confident", thresholds, 0.50, 1.00)
-        _linked_slider_number("ATTENTION_T (균열계열 의심 기준)", "attention_t", thresholds, 0.00, 0.50)
-        _linked_slider_number("CONFIDENT_T (자동배출 기준)", "confident_t", thresholds, 0.30, 0.90)
-
-        st.caption("값을 바꾸면 → 오른쪽 지표가 실시간 재계산됩니다 (검증셋 기준, 현재는 더미 검증셋).")
+        with st.container(border=True):
+            st.subheader("라우팅 임계값 조절")
+            _linked_slider_number("ND_CONFIDENT (무결함 자동통과 기준)", "nd_confident", thresholds, 0.50, 1.00)
+            _linked_slider_number("ATTENTION_T (균열계열 의심 기준)", "attention_t", thresholds, 0.00, 0.50)
+            _linked_slider_number("CONFIDENT_T (자동배출 기준)", "confident_t", thresholds, 0.30, 0.90)
 
     with col2:
-        st.subheader("실시간 성능 지표 (검증셋 기준)")
-        df = load_validation_predictions()
-        kpis = compute_kpis(df, thresholds)
+        with st.container(border=True):
+            st.subheader("실시간 성능 지표")
+            df = load_validation_predictions()
+            kpis = compute_kpis(df, thresholds)
 
-        m1, m2 = st.columns(2)
-        m1.metric("자동화율", f"{kpis['automation_rate']:.1%}")
-        m2.metric("사람 확인으로 넘어간 비율", f"{kpis['human_review_rate']:.1%}")
+            m1, m2 = st.columns(2)
+            m1.metric("자동화율", f"{kpis['automation_rate']:.1%}")
+            m2.metric("사람 확인 비율", f"{kpis['human_review_rate']:.1%}")
 
-        m3, m4 = st.columns(2)
-        m3.metric("D1(균열) 미검출률", f"{kpis['d1_miss_rate']:.1%}",
-                   delta=None if kpis["d1_miss_rate"] == 0 else "주의", delta_color="inverse")
-        m4.metric("D4(미용착) 미검출률", f"{kpis['d4_miss_rate']:.1%}",
-                   delta=None if kpis["d4_miss_rate"] == 0 else "주의", delta_color="inverse")
+            m3, m4 = st.columns(2)
+            m3.metric("D1(균열) 미검출률", f"{kpis['d1_miss_rate']:.1%}",
+                       delta=None if kpis["d1_miss_rate"] == 0 else "주의", delta_color="inverse")
+            m4.metric("D4(미용착) 미검출률", f"{kpis['d4_miss_rate']:.1%}",
+                       delta=None if kpis["d4_miss_rate"] == 0 else "주의", delta_color="inverse")
 
-        st.caption(f"검증셋 샘플 수: {kpis['n']:,}건 (더미 데이터)")
+            st.caption(f"검증셋 {kpis['n']:,}건 기준 (현재 더미 검증셋)")
