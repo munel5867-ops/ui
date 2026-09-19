@@ -1,0 +1,3 @@
+{
+  "python.defaultInterpreterPath": "${env:USERPROFILE}\\miniconda3\\envs\\pbl\\python.exe"
+}
