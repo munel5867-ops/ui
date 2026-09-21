@@ -34,18 +34,20 @@ def inject_css():
     .rt-header {
         background: linear-gradient(135deg, """ + BRAND_NAVY + """ 0%, """ + BRAND_BLUE + """ 100%);
         color: #fff;
-        padding: 22px 28px;
+        padding: 28px 32px;
         border-radius: 14px;
         margin-bottom: 18px;
     }
     .rt-header h1 {
         margin: 0;
-        font-size: 22px;
-        font-weight: 700;
+        font-size: 34px;
+        font-weight: 800;
+        letter-spacing: -0.3px;
+        line-height: 1.25;
     }
     .rt-header p {
-        margin: 4px 0 0;
-        font-size: 13px;
+        margin: 6px 0 0;
+        font-size: 15px;
         opacity: 0.85;
     }
     .stTabs [data-baseweb="tab-list"] {

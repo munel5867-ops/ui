@@ -9,7 +9,7 @@ from utils.routing import DEFAULT_THRESHOLDS
 from utils.style import inject_css
 
 st.set_page_config(
-    page_title="RT 용접부 결함 판독 · 자동 판정 보조 시스템",
+    page_title="AI 용접부 RT 결함 자동선별 시스템",
     page_icon="🔍",
     layout="wide",
 )
@@ -50,7 +50,7 @@ if alert["breached"]:
 st.markdown(
     """
     <div class="rt-header">
-        <h1>🔍 RT 용접부 결함 판독 · 자동 판정 보조 시스템</h1>
+        <h1>🔍 AI 용접부 RT 결함 자동선별 시스템</h1>
         <p>AI 자동 판정 · SPC 실시간 모니터링 · 2조</p>
     </div>
     """,
@@ -65,13 +65,25 @@ total_n = sum(r["n"] for r in ROUTING_SUMMARY)
 human_review_n = ROUTING_SUMMARY[2]["n"]
 automation_rate = CORE_KPIS[0][1]
 
+# 사람확인 대기열에서 검사자가 오늘 세션 중 승인/반려로 확정한 건수 —
+# tab3_spc의 검토 패널(resolved_queue_items)과 같은 상태를 그대로 읽어온다.
+resolved_n = len(st.session_state.get("resolved_queue_items", {}))
+
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("금일 검사 물량", f"{total_n:,}건")
 k2.metric("자동화율", f"{automation_rate:.1%}")
 k3.metric("사람확인 대기", f"{human_review_n:,}건", f"균열의심 {CRACK_SUSPECT_N}건 우선", delta_color="off")
 k4.metric(
-    "자동배출 임계값 (균열·용입불량/기공)",
-    f"{thresholds['crack_or_lop_t']:.2f} / {thresholds['porosity_t']:.2f}",
+    "오늘 처리 완료",
+    f"{resolved_n}건",
+    help="검사자가 사람확인 대기열에서 최종 승인/반려로 확정한 건수 (① 오늘의 현황 탭 기준)",
+)
+
+# 임계값은 오늘의 '실적'이 아니라 시스템에 걸어둔 '설정값'이라 KPI 카드와 톤을
+# 섞지 않고, 조절 탭 위치를 안내하는 캡션 한 줄로만 별도 노출한다.
+st.caption(
+    f"⚙ 자동배출 임계값 — 균열·용입불량 {thresholds['crack_or_lop_t']:.2f} · "
+    f"기공 {thresholds['porosity_t']:.2f}  (③ 임계값 조절 탭에서 변경)"
 )
 
 st.divider()
