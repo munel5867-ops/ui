@@ -2,6 +2,8 @@ import streamlit as st
 
 from tabs import tab1_inference, tab2_threshold, tab3_spc, tab4_report
 from tabs.tab3_spc import CORE_KPIS, CRACK_SUSPECT_N, ROUTING_SUMMARY
+from utils.dummy_data import spc_daily_defect_rate
+from utils.priority import six_m_ranking, spc_alert
 from utils.routing import DEFAULT_THRESHOLDS
 from utils.style import inject_css
 
@@ -13,18 +15,28 @@ st.set_page_config(
 
 inject_css()
 
+alert = spc_alert(spc_daily_defect_rate())
+if alert["breached"]:
+    st.markdown(
+        f'<div class="rt-alert-banner">⚠ <b>관리한계 이탈 감지</b> — '
+        f'{alert["date"].strftime("%Y-%m-%d")} 불량률 {alert["value"]:.1%} '
+        f'(UCL {alert["ucl"]:.1%} 초과)</div>',
+        unsafe_allow_html=True,
+    )
+    with st.expander("6M 원인 스크리닝 요약 보기"):
+        st.dataframe(six_m_ranking(), width="stretch", hide_index=True)
+
 st.markdown(
     """
     <div class="rt-header">
         <h1>🔍 RT 용접부 결함 판독 · 자동 판정 보조 시스템</h1>
-        <p>STAGE4 운영 데모 · STAGE5 SPC 모니터링 · 2조 · 포커스</p>
+        <p>AI 자동 판정 · SPC 실시간 모니터링 · 2조</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
 # 상단 고정 요약 바 — 어느 탭에 있든 관리자가 1초 만에 오늘 상황을 파악할 수 있게.
-# (①오늘의 현황 탭의 상세 내용과 같은 확정 결과 기준, 임계값만 ③탭 조절값을 반영)
 st.session_state.setdefault("thresholds", dict(DEFAULT_THRESHOLDS))
 thresholds = st.session_state["thresholds"]
 
@@ -43,8 +55,6 @@ k4.metric(
 
 st.divider()
 
-# "오늘의 현황"(구 STAGE5 대시보드)을 첫 화면으로 — 발표 시작하자마자
-# 처리 현황/자동배출 숫자가 바로 보이는 게 가시성이 더 좋다는 팀 판단.
 tab1, tab2, tab3, tab4 = st.tabs(
     ["① 오늘의 현황", "② 판정 데모", "③ 임계값 조절", "④ 자동보고서"]
 )

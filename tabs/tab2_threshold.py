@@ -49,7 +49,7 @@ def render():
     with col1:
         with st.container(border=True):
             st.subheader("라우팅 임계값 조절")
-            st.caption("STAGE3부터 균열(D1)·미용착(D4)을 하나로 통합 — 자세한 근거는 STAGE3 최종보고서 참고")
+            st.caption("균열(D1)·미용착(D4)을 하나의 판정 범주로 통합해 적용합니다.")
             _linked_slider_number("ND_CONFIDENT (무결함 자동통과 기준)", "nd_confident", thresholds, 0.50, 1.00)
             _linked_slider_number(
                 "CRACK_OR_LOP_T (균열·용입불량 통합 자동배출 기준)", "crack_or_lop_t", thresholds, 0.00, 0.50

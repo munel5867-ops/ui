@@ -6,17 +6,11 @@
 """
 import streamlit as st
 
-# ---- 브랜드/공통 색상 (팀 품질관리 대시보드의 남색·하늘색 톤과 통일) ----
 BRAND_BLUE = "#2a78d6"
 BRAND_NAVY = "#184f95"
 PAGE_BG = "#f9f9f7"
 INK_SECONDARY = "#52514e"
 
-# ---- 상태(라우팅 판정) 색상 — 이 용도로만 쓰고 다른 곳에 재사용하지 않음 ----
-# STAGE3에서 균열(D1)·미용착(D4)을 하나로 통합하면서 classify()는 이제
-# auto_pass/attention/auto_reject 3개만 반환한다. attention_crack은 더 이상
-# 실시간 판정에서는 안 나오지만, STAGE3 통합 이전 히스토리 수치를 보여주는
-# ①오늘의 현황 탭의 "균열계열 의심" 항목이 아직 이 색을 쓰고 있어서 남겨둔다.
 STATUS_COLORS = {
     "auto_pass": {"bg": "#0ca30c", "icon": "✅", "label": "자동 통과"},
     "attention": {"bg": "#fab219", "icon": "⚠", "label": "사람 확인 필요"},
@@ -24,8 +18,6 @@ STATUS_COLORS = {
     "auto_reject": {"bg": "#d03b3b", "icon": "⛔", "label": "자동 배출"},
 }
 
-# ---- 클래스별(판정 확률 막대차트) 색상 — 고정 순서 ----
-# STAGE3부터 균열(D1)·미용착(D4)이 "균열·용입불량(D1+D4)" 한 클래스로 통합됨.
 CLASS_COLORS = {
     "무결함": "#1baf7a",
     "균열·용입불량(D1+D4)": "#e34948",
@@ -34,67 +26,73 @@ CLASS_COLORS = {
 
 
 def inject_css():
-    st.markdown(
-        f"""
-        <style>
-        .stApp {{
-            background-color: {PAGE_BG};
-        }}
-        .rt-header {{
-            background: linear-gradient(135deg, {BRAND_NAVY} 0%, {BRAND_BLUE} 100%);
-            color: #fff;
-            padding: 22px 28px;
-            border-radius: 14px;
-            margin-bottom: 18px;
-        }}
-        .rt-header h1 {{
-            margin: 0;
-            font-size: 22px;
-            font-weight: 700;
-        }}
-        .rt-header p {{
-            margin: 4px 0 0;
-            font-size: 13px;
-            opacity: 0.85;
-        }}
-        .stTabs [data-baseweb="tab-list"] {{
-            gap: 4px;
-        }}
-        .stTabs [data-baseweb="tab"] {{
-            background-color: #eef2f8;
-            border-radius: 8px 8px 0 0;
-            padding: 8px 18px;
-            font-weight: 600;
-            color: {INK_SECONDARY};
-        }}
-        .stTabs [aria-selected="true"] {{
-            background-color: {BRAND_BLUE} !important;
-            color: #fff !important;
-        }}
-        .rt-badge {{
-            display: inline-block;
-            padding: 7px 18px;
-            border-radius: 20px;
-            font-size: 14px;
-            font-weight: 700;
-            color: #fff;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    css = """
+    <style>
+    .stApp {
+        background-color: """ + PAGE_BG + """;
+    }
+    .rt-header {
+        background: linear-gradient(135deg, """ + BRAND_NAVY + """ 0%, """ + BRAND_BLUE + """ 100%);
+        color: #fff;
+        padding: 22px 28px;
+        border-radius: 14px;
+        margin-bottom: 18px;
+    }
+    .rt-header h1 {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 700;
+    }
+    .rt-header p {
+        margin: 4px 0 0;
+        font-size: 13px;
+        opacity: 0.85;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 4px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: #eef2f8;
+        border-radius: 8px 8px 0 0;
+        padding: 8px 18px;
+        font-weight: 600;
+        color: """ + INK_SECONDARY + """;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: """ + BRAND_BLUE + """ !important;
+        color: #fff !important;
+    }
+    .rt-badge {
+        display: inline-block;
+        padding: 7px 18px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 700;
+        color: #fff;
+    }
+    .rt-alert-banner {
+        background: #fdecea;
+        border: 1px solid #d03b3b;
+        color: #7a1f1f;
+        padding: 12px 18px;
+        border-radius: 10px;
+        margin-bottom: 14px;
+        font-size: 14px;
+        font-weight: 600;
+    }
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
 
 
 def status_badge(status: str) -> str:
-    """라우팅 status 값 -> 큰 배지 HTML 한 줄 (판정 데모 탭용). st.markdown(..., unsafe_allow_html=True)로 렌더."""
     s = STATUS_COLORS[status]
-    return f'<span class="rt-badge" style="background:{s["bg"]};">{s["icon"]} {s["label"]}</span>'
+    return '<span class="rt-badge" style="background:' + s["bg"] + ';">' + s["icon"] + " " + s["label"] + "</span>"
 
 
 def status_tag(status: str) -> str:
-    """라우팅 status 값 -> 표/목록에 넣는 작은 태그 HTML (배지보다 작고 옅은 배경). 같은 팔레트를 재사용."""
     s = STATUS_COLORS[status]
     return (
-        f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
-        f'font-size:11px;font-weight:600;background:{s["bg"]}22;color:{s["bg"]};">{s["label"]}</span>'
+        '<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
+        'font-size:11px;font-weight:600;background:' + s["bg"] + '22;color:' + s["bg"] + ';">' + s["label"] + "</span>"
     )
