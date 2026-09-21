@@ -3,6 +3,7 @@ from datetime import date, timedelta
 import streamlit as st
 
 from utils.dummy_data import load_validation_predictions
+from utils.mail_ui import render_send_email_popover
 from utils.report import build_weekly_report_docx
 from utils.routing import DEFAULT_THRESHOLDS, compute_kpis
 
@@ -20,8 +21,8 @@ def render():
     human_review_count = round(total_count * kpis["human_review_rate"])
     crack_or_lop_miss_count = round(total_count * kpis["crack_or_lop_miss_rate"])
     porosity_miss_count = round(total_count * kpis["porosity_miss_rate"])
-    anomaly_note = "SPC p-chart에서 UCL 초과 이상점 1건 발생 → 원인분석 필요."
-    recommendation = "균열·용입불량(D1+D4) 통합 임계값(CRACK_OR_LOP_T) 재검토 권장."
+    anomaly_note = "SPC p-chart에서 UCL 초과 이상점 1건 발생 → 원인분석이 필요합니다."
+    recommendation = "균열·용입불량(D1+D4) 통합 임계값(CRACK_OR_LOP_T) 재검토를 권장합니다."
 
     with st.container(border=True):
         st.markdown(
@@ -48,10 +49,22 @@ def render():
         anomaly_note=anomaly_note,
         recommendation=recommendation,
     )
+    docx_name = f"weekly_report_{period_end.isoformat()}.docx"
 
-    st.download_button(
-        "⬇ .docx로 다운로드",
-        data=docx_bytes,
-        file_name=f"weekly_report_{period_end.isoformat()}.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    )
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        st.download_button(
+            "⬇ .docx로 다운로드",
+            data=docx_bytes,
+            file_name=docx_name,
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            width="stretch",
+        )
+    with c2:
+        render_send_email_popover(
+            docx_bytes, docx_name,
+            subject="[RT 검사] 주간 자동보고서",
+            body="첨부된 주간 자동보고서를 확인해 주세요. (대시보드에서 자동 생성됨)",
+            key_prefix="weekly_tab4",
+            label="✉️ 메일로 전송",
+        )

@@ -1,3 +1,4 @@
+import pandas as pd
 import streamlit as st
 
 from utils.dummy_data import load_validation_predictions
@@ -49,7 +50,7 @@ def render():
     with col1:
         with st.container(border=True):
             st.subheader("라우팅 임계값 조절")
-            st.caption("STAGE3부터 균열(D1)·미용착(D4)을 하나로 통합 — 자세한 근거는 STAGE3 최종보고서 참고")
+            st.caption("균열(D1)·미용착(D4)을 하나의 판정 범주로 통합해 적용합니다.")
             _linked_slider_number("ND_CONFIDENT (무결함 자동통과 기준)", "nd_confident", thresholds, 0.50, 1.00)
             _linked_slider_number(
                 "CRACK_OR_LOP_T (균열·용입불량 통합 자동배출 기준)", "crack_or_lop_t", thresholds, 0.00, 0.50
@@ -73,3 +74,15 @@ def render():
                        delta=None if kpis["porosity_miss_rate"] == 0 else "주의", delta_color="inverse")
 
             st.caption(f"검증셋 {kpis['n']:,}건 기준 (현재 더미 검증셋)")
+
+    st.divider()
+    st.subheader("비용기반 임계값 매트릭스")
+    st.caption("미검출(놓침) 대 과검출(오탐) 비용비에 따라 권장되는 임계값입니다. 우리 라인의 실제 비용 구조에 맞는 행을 참고하세요.")
+    cost_matrix = pd.DataFrame({
+        "비용비(미검:과검)": ["3:1", "5:1", "10:1", "20:1", "30:1", "50:1", "75:1", "100:1"],
+        "이진(결함유무)": [0.965, 0.965, 0.965, 0.930, 0.930, 0.900, None, None],
+        "균열·용입불량(D1+D4)": [0.965, 0.960, 0.895, 0.860, 0.660, 0.595, 0.595, 0.440],
+        "기공(D2)": [0.975, 0.930, 0.860, 0.860, 0.780, 0.710, None, None],
+    })
+    st.dataframe(cost_matrix, width="stretch", hide_index=True)
+    st.caption("미검출 비용이 클수록(안전 중요) 임계값이 낮아져 더 많이 자동배출/사람확인으로 넘깁니다. 현재 기본값(CRACK_OR_LOP_T=0.1982)은 대략 10:1 비용비 수준입니다.")
