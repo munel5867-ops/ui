@@ -1,8 +1,9 @@
 import streamlit as st
 
-from tabs import tab1_inference, tab2_threshold, tab3_spc, tab4_report
+from tabs import tab1_inference, tab2_threshold, tab3_spc, tab4_report, tab5_model_data, tab6_limits
 from tabs.tab3_spc import CORE_KPIS, CRACK_SUSPECT_N, ROUTING_SUMMARY
 from utils.dummy_data import spc_daily_defect_rate
+from utils.mailer import default_recipient, is_configured, send_email
 from utils.priority import six_m_ranking, spc_alert
 from utils.routing import DEFAULT_THRESHOLDS
 from utils.style import inject_css
@@ -25,6 +26,26 @@ if alert["breached"]:
     )
     with st.expander("6M 원인 스크리닝 요약 보기"):
         st.dataframe(six_m_ranking(), width="stretch", hide_index=True)
+
+    if is_configured():
+        with st.popover("🚨 담당자에게 긴급 보고"):
+            to = st.text_input("받는 사람 (쉼표로 여러 명 가능)", value=default_recipient(), key="alert_mail_to")
+            if st.button("긴급 메일 전송", key="alert_mail_send", type="primary"):
+                body = (
+                    f"SPC 관리한계 이탈 감지\n\n"
+                    f"일자: {alert['date'].strftime('%Y-%m-%d')}\n"
+                    f"불량률: {alert['value']:.1%}\n"
+                    f"관리상한(UCL): {alert['ucl']:.1%}\n"
+                    f"중심선(CL): {alert['cl']:.1%}\n\n"
+                    f"대시보드의 6M 원인 스크리닝 결과를 확인해 즉시 조치 바랍니다."
+                )
+                try:
+                    send_email("[긴급] RT 검사 SPC 관리한계 이탈 경보", body, to)
+                    st.success(f"{to} 로 긴급 보고 메일을 전송했습니다.")
+                except Exception as e:
+                    st.error(f"전송 실패: {e}")
+    else:
+        st.caption("긴급 메일 전송을 쓰려면 `.streamlit/secrets.toml`에 SMTP 설정이 필요합니다.")
 
 st.markdown(
     """
@@ -55,8 +76,8 @@ k4.metric(
 
 st.divider()
 
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["① 오늘의 현황", "② 판정 데모", "③ 임계값 조절", "④ 자동보고서"]
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    ["① 오늘의 현황", "② 판정 데모", "③ 임계값 조절", "④ 모델·데이터 검증", "⑤ 한계·조치", "⑥ 자동보고서"]
 )
 
 with tab1:
@@ -69,4 +90,10 @@ with tab3:
     tab2_threshold.render()
 
 with tab4:
+    tab5_model_data.render()
+
+with tab5:
+    tab6_limits.render()
+
+with tab6:
     tab4_report.render()

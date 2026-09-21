@@ -3,6 +3,7 @@ import streamlit as st
 from PIL import Image
 
 from utils.decisions import log_decision
+from utils.mail_ui import render_send_email_popover
 from utils.dummy_data import load_validation_predictions, make_mock_gradcam_overlay, spc_daily_defect_rate
 from utils.priority import build_priority_queue
 from utils.report import weekly_report_bytes
@@ -174,13 +175,20 @@ def render():
             st.header("🔎 사람 확인 대기 · 심각도순")
             st.caption("심각도(지배 클래스 위험도 × 보정 확률) 내림차순 — 위험한 것부터 확인하세요.")
 
-            r1, r2 = st.columns([3, 2])
+            docx_bytes, docx_name = weekly_report_bytes(thresholds)
+            r1, r2, r3 = st.columns([2.4, 1.3, 1.3])
             if resolved_map:
                 r1.caption(f"오늘 처리 완료: {len(resolved_map)}건")
-            docx_bytes, docx_name = weekly_report_bytes(thresholds)
-            r2.download_button("📄 주간 보고서", data=docx_bytes, file_name=docx_name,
+            r2.download_button("📄 다운로드", data=docx_bytes, file_name=docx_name,
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                 width="stretch")
+            with r3:
+                render_send_email_popover(
+                    docx_bytes, docx_name,
+                    subject="[RT 검사] 주간 자동보고서",
+                    body="첨부된 주간 자동보고서를 확인해 주세요. (대시보드에서 자동 생성됨)",
+                    key_prefix="weekly_today",
+                )
 
             if open_queue.empty:
                 st.success("대기 중인 사람 확인 케이스가 없습니다.")
