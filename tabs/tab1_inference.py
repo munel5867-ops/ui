@@ -29,13 +29,20 @@ STATUS_ICON = {
     "auto_reject": "⛔ 자동 배출",
 }
 
-HISTORY_MAX = 30
-HISTORY_SHOW = 10
-HISTORY_THUMB_PX = 84
-IMG_MAX_WIDTH_PX = 340
+HISTORY_MAX = 30  # 세션 내내 무한정 쌓이지 않게 최근 것만 유지
+HISTORY_SHOW = 10  # 화면에 한 번에 보여줄 개수 (스트림릿엔 진짜 드래그 스크롤이 없어서 최근 N장만 나란히)
+HISTORY_THUMB_PX = 84  # 이력 칸의 썸네일은 작게 — 위쪽 '현재 판정 대상' 큰 이미지와 구분
+IMG_MAX_WIDTH_PX = 340  # 원본/Grad-CAM 박스 최대 폭 — 컬럼을 꽉 채우지 않고 적당히 작게
 
 
 def _boxed_image(img, caption: str | None = None):
+    """원본 사진과 Grad-CAM 오버레이를 나란히 놓아도 높이가 어긋나지 않게 한다.
+    둘 다 실제로는 227x227 정사각형이라, 박스를 고정 픽셀 높이가 아니라
+    '항상 정사각형(aspect-ratio 1:1)'으로 맞춘다 — 컬럼 폭이 같으니 높이도
+    자동으로 같아지고, 정사각형 원본을 정사각형 박스에 넣으니 잘리지도 않는다.
+    최대 폭(IMG_MAX_WIDTH_PX)을 둬서 컬럼을 꽉 채우지 않고 가운데 정렬로 작게 보이게 한다.
+    <img> 태그는 Streamlit 기본 CSS(height:auto 등)에 덮어써지는 경우가 있어,
+    그걸 피하려고 배경이미지(div + background-image)로 렌더링한다."""
     if isinstance(img, np.ndarray):
         img = Image.fromarray(img)
     buf = io.BytesIO()
@@ -53,6 +60,7 @@ def _boxed_image(img, caption: str | None = None):
 
 
 def _thumbnail_bytes(raw_bytes: bytes, size: int = HISTORY_THUMB_PX) -> bytes:
+    """이력 칸에 넣을 작은 썸네일로 축소. 원본은 227x227이라 축소해도 화질 문제 없음."""
     img = Image.open(io.BytesIO(raw_bytes)).convert("L")
     img.thumbnail((size, size))
     buf = io.BytesIO()
@@ -68,6 +76,8 @@ def _load_samples():
 
 
 def _log_decision(source: str, probs: dict, status: str, decision: str):
+    """검사자의 최종 확인 결과를 로컬 CSV에 기록 — 나중에 재학습용 라벨 후보로 쓸 수 있는
+    최소 형태의 피드백 루프. 실시간 DB는 아니고 로컬 파일이라 이 컴퓨터에서만 쌓인다."""
     is_new = not DECISION_LOG.exists()
     with open(DECISION_LOG, "a", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
@@ -116,16 +126,28 @@ def _prob_bar_chart(probs: dict) -> go.Figure:
 def render():
     thresholds = st.session_state.get("thresholds", DEFAULT_THRESHOLDS)
 
+    # 실제 모델(TensorFlow/Keras) 연동 모듈. weights/ 폴더에 가중치 파일이 없으면
+    # import 자체는 되지만 load_fold_models()가 빈 리스트를 돌려주고, 이 화면은
+    # 자동으로 더미 데이터로 대체 표시한다 (앱이 죽지 않음).
     from utils import model as rt_model
+    from utils.inference_cache import get_or_compute
 
     st.session_state.setdefault("demo_idx", 0)
     st.session_state.setdefault("demo_playing", False)
     st.session_state.setdefault("demo_speed", 3.0)
 
+    # 자동재생 중일 때만 간격(초)을 넣어서 fragment가 그 주기로 스스로 다시 그려지게 한다.
+    # 이 값 자체를 재생 여부에 따라 매번 새로 계산해서 데코레이터에 넘기는 방식 —
+    # Streamlit 공식 패턴(자동재생 on/off 토글)과 동일. 꺼져 있으면 run_every=None이라
+    # 그냥 보통 위젯처럼 사용자가 조작할 때만 다시 그려진다 (페이지 전체가 멈추지 않음).
     interval = st.session_state["demo_speed"] if st.session_state["demo_playing"] else None
 
     @st.fragment(run_every=interval)
     def _demo_panel():
+        # 컨트롤(업로드/이전·다음/캡션)은 두 칸 폭 전체를 쓰는 별도 블록으로 먼저 그린다.
+        # 이걸 컬럼 안에 넣으면 왼쪽 칸만 위쪽이 길어져서 아래 사진 시작 위치가
+        # 오른쪽 Grad-CAM 칸과 어긋나 보이므로, 컨트롤을 컬럼 밖으로 빼서 양쪽 칸이
+        # 항상 "제목 → 사진"으로 똑같은 구조가 되게 한다 (그래야 사진 높이가 맞는다).
         with st.container(border=True):
             st.subheader("1. 이미지 선택")
 
@@ -138,6 +160,9 @@ def render():
             )
 
             if uploaded_files:
+                # 업로드된 파일 목록 자체가 바뀌면(새로 여러 장 올리면) 처음(0번)부터
+                # 다시 보여주고 재생은 멈춰둔다. 같은 파일 그대로면(다른 위젯 조작으로
+                # 인한 재실행) 지금 보고 있던 위치를 유지.
                 fingerprint = tuple((f.name, f.size) for f in uploaded_files)
                 if st.session_state.get("_upload_fingerprint") != fingerprint:
                     st.session_state["_upload_fingerprint"] = fingerprint
@@ -151,6 +176,8 @@ def render():
                 batch = [(p.stem, p.read_bytes()) for p in folder_samples]
                 batch_label = "샘플"
 
+            # 업로드/샘플 묶음이 통째로 바뀌면(다른 파일들로 교체) 이전 세트의 이력은
+            # 더 이상 의미가 없으니 비운다. 같은 묶음 안에서 넘기는 동안은 유지.
             batch_key = (batch_label, tuple(n for n, _ in batch))
             if st.session_state.get("_hist_batch_key") != batch_key:
                 st.session_state["_hist_batch_key"] = batch_key
@@ -195,6 +222,7 @@ def render():
 
             pil_image = Image.open(io.BytesIO(image_bytes)) if image_bytes else None
 
+        # 원본 사진 / Grad-CAM — 둘 다 "제목 한 줄 → 사진" 구조로 동일해서 사진 시작 위치가 맞는다.
         row1_col1, row1_col2 = st.columns(2)
 
         with row1_col1:
@@ -221,12 +249,15 @@ def render():
                         st.caption("이미지 선택 전 — 더미 히트맵 표시 중")
                     _boxed_image(make_mock_gradcam_overlay())
 
+        # 2행: 판정 결과 / 라우팅 결과 — 1행 아래 가로 전체 폭으로, 위아래 스크롤 없이 한눈에
         with st.container(border=True):
             st.subheader("3. 판정 결과")
 
-            probs, missing, breakdown = (None, None, None)
+            probs, breakdown = (None, None)
             if pil_image is not None:
-                probs, missing, breakdown = rt_model.predict_ensemble(pil_image)
+                probs, breakdown = get_or_compute(
+                    image_bytes, lambda: rt_model.predict_ensemble(pil_image)
+                )
 
             if probs is None:
                 if pil_image is not None:
@@ -248,6 +279,10 @@ def render():
                     f"용입불량(D4) {breakdown['용입불량(D4) 추정']:.0%}"
                 )
 
+            # 방금 본 이미지를 이력에 기록 — 같은 이미지(같은 idx)에서 위젯만 건드려
+            # 재실행된 경우엔 중복으로 쌓이지 않게 (batch_key, idx) 조합으로 구분.
+            # 원본이 아니라 축소된 썸네일 + 확률/라우팅 결과까지 같이 저장해서, 이력 칸에서
+            # 사진과 판정 결과를 한 번에 볼 수 있게 한다.
             if pil_image is not None:
                 hist_key = (batch_key, st.session_state["demo_idx"])
                 if st.session_state.get("_last_hist_key") != hist_key:
@@ -305,6 +340,9 @@ def render():
                             f"{STATUS_ICON.get(rec['status'], rec['status'])}"
                         )
 
+        # 자동재생 타이머로 인한 재실행이면, 화면을 다 그린 다음 다음 인덱스로 넘겨서
+        # 다음 tick 때 새 이미지가 보이게 한다 (그려주는 시점과 넘기는 시점을 분리해서
+        # '방금 본 이미지'가 잠깐이라도 먼저 눈에 들어오게 함).
         if st.session_state["demo_playing"] and batch:
             st.session_state["demo_idx"] = (st.session_state["demo_idx"] + 1) % len(batch)
 

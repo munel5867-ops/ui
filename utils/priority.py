@@ -69,6 +69,7 @@ def _infer_all_samples():
 
     from utils.model import predict_ensemble
     from utils.samples import load_samples
+    from utils.inference_cache import get_or_compute
 
     @st.cache_data(show_spinner="샘플 이미지 검사 중...")
     def _run():
@@ -78,10 +79,12 @@ def _infer_all_samples():
         rows = []
         for path in samples:
             try:
-                img = Image.open(path)
+                img_bytes = path.read_bytes()
             except Exception:
                 continue
-            probs, missing, breakdown = predict_ensemble(img)
+            probs, breakdown = get_or_compute(
+                img_bytes, lambda p=path: predict_ensemble(Image.open(p))
+            )
             if probs is None:
                 return None
             rows.append({"image_id": path.stem, "path": str(path), "probs": probs, "breakdown": breakdown})
