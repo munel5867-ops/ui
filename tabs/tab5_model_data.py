@@ -1,10 +1,10 @@
-import pandas as pd
+﻿import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
 # 아래 수치는 STAGE1~2 단계에서 실제로 측정된 검증 결과다 (필름 단위
-# StratifiedGroupKFold 5-fold 교차검증). 균열(D1)·미용착(D4) 통합 결정은
+# StratifiedGroupKFold 5-fold 교차검증). 균열(D1)·용입불량(D4) 통합 결정은
 # 바로 이 수치들(특히 fold1 혼동행렬, 특이도·Grad-CAM 최약체 결과)에서
 # 나왔으므로, 통합 이전 4클래스 개별 분석 그대로 남겨둔다 — 이게 "왜
 # 통합했는가"에 대한 근거 자체이기 때문이다.

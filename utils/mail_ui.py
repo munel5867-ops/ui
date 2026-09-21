@@ -1,4 +1,4 @@
-"""'메일로 전송' 팝오버 UI — 다운로드 버튼 옆에 붙여서 재사용한다."""
+﻿"""'메일로 전송' 팝오버 UI — 다운로드 버튼 옆에 붙여서 재사용한다."""
 import streamlit as st
 
 from utils.mailer import default_recipient, is_configured, send_email
