@@ -27,3 +27,4 @@ __pycache__/
 # OS/에디터
 .DS_Store
 Thumbs.db
+.ipynb_checkpoints/ 
