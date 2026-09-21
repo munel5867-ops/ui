@@ -1,22 +1,19 @@
 """
-STAGE1에서 학습한 EfficientNetB0 5-fold 모델을 불러와 실제 추론 + Grad-CAM을 수행하는 모듈.
+STAGE3에서 백본 마지막 20층을 미세조정+증강 학습한 EfficientNetB0 5-fold 모델을 불러와
+실제 추론 + Grad-CAM을 수행하는 모듈.
 
-Colab 학습/검증 스크립트(구글드라이브의
-`colab_전이학습_MobileNetV2_EfficientNetB0.py`, `colab_STAGE2_GradCAM_validation기반.py`)에서
-쓰던 build_model() / make_gradcam_heatmap() 코드를 그대로 옮겨왔다. 모델 구조나 전처리 방식이
-학습 때와 1픽셀이라도 다르면 예측이 어긋나므로, 임의로 바꾸지 말 것.
+2026-09-19 갱신 — 배포 가중치를 백본 동결(filmopt) 모델에서 미세조정+증강 모델로
+교체했다. STAGE3 최종 보고서(2026-09-19)의 종합결론에 따른 최종 채택 모델이며,
+이에 맞춰 routing.py의 CRACK_OR_LOP_T도 0.2823으로 함께 갱신했다. 파일명에
+"finetune"이 붙은 것으로 구분한다 — filmopt(백본 동결)와 혼동하지 말 것.
 
-가중치 파일 5개(`efficientnetb0_filmopt_fold0~4_last.weights.h5`)는 용량이 커서(각 ~16MB)
-Claude가 대신 받아줄 수 없다 — 구글드라이브에서 직접 내려받아 이 프로젝트의 weights/ 폴더에
-넣어야 한다. (자세한 안내는 채팅 답변 참고)
+Colab 학습/검증 스크립트에서 쓰던 build_model() / make_gradcam_heatmap() 코드를
+그대로 옮겨왔다. 모델 구조나 전처리 방식이 학습 때와 1픽셀이라도 다르면 예측이
+어긋나므로, 임의로 바꾸지 말 것.
 
-STAGE3 갱신 — 이 가중치들은 여전히 원래 학습된 "4클래스 개별(Difetto1/2/4/NoDifetto)"
-백본 동결 모델이다 (미세조정된 새 가중치가 아직 없음). 다만 STAGE3 보고서에서 균열(D1)·
-미용착(D4)을 하나의 판정 범주로 통합하기로 했으므로, 모델 자체는 그대로 4클래스 raw
-확률을 뽑되 이 파일에서 D1+D4를 더해 최종적으로 3클래스(무결함/균열·용입불량/기공)로
-합쳐서 반환한다. utils/routing.py의 CRACK_OR_LOP_T 기본값(0.1982)도 이 "기저모델 통합"
-기준으로 맞춰져 있다 — 나중에 미세조정된 새 가중치가 들어오면 그 가중치는 원래부터
-3클래스로 나올 가능성이 높으니, 그때 이 병합 로직을 다시 확인할 것.
+가중치 파일 5개(`efficientnetb0_finetune_fold0~4_last.weights.h5`, 각 ~27.7MB)는
+용량이 커서 Claude가 대신 받아줄 수 없다 — 구글드라이브에서 직접 내려받아
+이 프로젝트의 models/ 폴더에 넣어야 한다.
 """
 import os
 
@@ -29,8 +26,8 @@ from tensorflow.keras.applications import EfficientNetB0, efficientnet
 IMG_SIZE = 224  # 학습 스크립트의 IMG_SIZE와 동일 (원본 타일은 227x227이지만 학습 시 224로 리사이즈됨)
 N_FOLDS = 5
 
-WEIGHTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "weights")
-WEIGHTS_TEMPLATE = "efficientnetb0_filmopt_fold{fold}_last.weights.h5"
+WEIGHTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
+WEIGHTS_TEMPLATE = "efficientnetb0_finetune_fold{fold}_last.weights.h5"
 
 # 학습 시 sorted(os.listdir(train_dir))로 정해진 실제 클래스 순서.
 # 모델 출력(softmax) 벡터의 인덱스 순서가 이 순서와 정확히 일치해야 함 — 절대 바꾸지 말 것.
@@ -38,7 +35,8 @@ CLASS_NAMES = ["Difetto1", "Difetto2", "Difetto4", "NoDifetto"]
 
 # raw 4클래스 -> 최종 표시용 3클래스 매핑. Difetto1·Difetto4가 같은 값으로 매핑되므로
 # predict_ensemble()에서 두 확률을 명시적으로 더해야 한다 (dict 컴프리헨션으로 덮어쓰면
-# 하나가 사라지니 주의).
+# 하나가 사라지니 주의). 원래 개별 확률은 별도로 breakdown에 남겨서 화면에
+# 참고용으로 보여줄 수 있게 한다 — 판정(라우팅) 자체는 여전히 합산값 하나로 결정된다.
 LABEL_KR = {
     "Difetto1": "균열·용입불량(D1+D4)",
     "Difetto4": "균열·용입불량(D1+D4)",
@@ -99,14 +97,15 @@ def _preprocess(pil_image: Image.Image):
 
 
 def predict_ensemble(pil_image: Image.Image):
-    """5-fold 모델의 softmax 확률을 평균 앙상블 (STAGE2 Track A와 동일한 방식 — 엄격한
-    OOF 대신 5개 fold를 전부 평균해서 쓰는 간소화된 방법).
-    STAGE3 통합: raw 4클래스(Difetto1/2/4/NoDifetto) 확률을 낸 다음, Difetto1+Difetto4를
-    더해 최종적으로 3클래스(무결함/균열·용입불량(D1+D4)/기공(D2))로 합쳐서 반환한다.
-    반환: (probs 딕셔너리 또는 None, 없는 가중치 파일 목록)"""
+    """5-fold 모델의 softmax 확률을 평균 앙상블.
+    raw 4클래스(Difetto1/2/4/NoDifetto) 확률을 낸 다음, Difetto1+Difetto4를 더해
+    최종적으로 3클래스(무결함/균열·용입불량(D1+D4)/기공(D2))로 합쳐서 반환하되,
+    합치기 전 개별 확률도 breakdown으로 함께 반환한다 — 라우팅 판정은 합산값
+    하나로만 하고, breakdown은 화면에 참고용 세부 정보로만 노출한다.
+    반환: (probs 딕셔너리 또는 None, 없는 가중치 파일 목록, breakdown 딕셔너리 또는 None)"""
     models, missing = load_fold_models()
     if not models:
-        return None, missing
+        return None, missing, None
 
     _, batch = _preprocess(pil_image)
     all_preds = [m.predict(batch, verbose=0)[0] for m, _ in models]
@@ -118,7 +117,11 @@ def predict_ensemble(pil_image: Image.Image):
         "균열·용입불량(D1+D4)": float(raw["Difetto1"] + raw["Difetto4"]),
         "기공(D2)": float(raw["Difetto2"]),
     }
-    return probs, missing
+    breakdown = {
+        "균열(D1) 추정": float(raw["Difetto1"]),
+        "용입불량(D4) 추정": float(raw["Difetto4"]),
+    }
+    return probs, missing, breakdown
 
 
 def _gradcam_heatmap(grad_model: tf.keras.Model, img_batch: np.ndarray, pred_index: int) -> np.ndarray:

@@ -57,3 +57,62 @@ def six_m_ranking(seed=3):
     scores = rng.uniform(0.2, 0.95, size=len(SIX_M_FACTORS))
     df = pd.DataFrame({"요인": SIX_M_FACTORS, "연관도": scores})
     return df.sort_values("연관도", ascending=False).reset_index(drop=True)
+
+
+def _infer_all_samples():
+    """samples/ 폴더의 모든 실제 이미지에 모델 추론을 1회씩 돌려 캐시해둔다.
+    (임계값과 무관한 부분이라 여기서만 캐시하고, 임계값 적용은 score_real_samples에서
+    매번 가볍게 다시 계산한다 — 슬라이더 바꿀 때마다 모델을 다시 돌리지 않기 위함.)
+    반환: [{"image_id","path","probs","breakdown"}, ...] 또는 가중치가 없으면 None."""
+    import streamlit as st
+    from PIL import Image
+
+    from utils.model import predict_ensemble
+    from utils.samples import load_samples
+
+    @st.cache_data(show_spinner="샘플 이미지 검사 중...")
+    def _run():
+        samples = load_samples()
+        if not samples:
+            return []
+        rows = []
+        for path in samples:
+            try:
+                img = Image.open(path)
+            except Exception:
+                continue
+            probs, missing, breakdown = predict_ensemble(img)
+            if probs is None:
+                return None
+            rows.append({"image_id": path.stem, "path": str(path), "probs": probs, "breakdown": breakdown})
+        return rows
+
+    return _run()
+
+
+def score_real_samples(thresholds):
+    """캐시된 실제 추론 결과에 현재 임계값을 적용해, 사람확인(attention) 케이스만
+    심각도순으로 정렬해 돌려준다. 모델 가중치가 없으면 None(폴백 신호)을 반환한다."""
+    from utils.routing import classify
+
+    inferred = _infer_all_samples()
+    if inferred is None:
+        return None
+
+    rows = []
+    for item in inferred:
+        probs = item["probs"]
+        status = classify(probs["무결함"], probs["균열·용입불량(D1+D4)"], probs["기공(D2)"], thresholds)
+        if status != "attention":
+            continue
+        c, p = probs["균열·용입불량(D1+D4)"], probs["기공(D2)"]
+        dom_class, dom_prob = ("균열·용입불량(D1+D4)", c) if c >= p else ("기공(D2)", p)
+        rows.append({
+            **item,
+            "status": status,
+            "dominant_class": dom_class,
+            "calibrated_prob": dom_prob,
+            "severity_score": CLASS_WEIGHT[dom_class] * dom_prob,
+        })
+    rows.sort(key=lambda r: r["severity_score"], reverse=True)
+    return rows

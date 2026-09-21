@@ -5,11 +5,11 @@ from PIL import Image
 from utils.decisions import log_decision
 from utils.mail_ui import render_send_email_popover
 from utils.dummy_data import load_validation_predictions, make_mock_gradcam_overlay, spc_daily_defect_rate
-from utils.priority import build_priority_queue
+from utils.priority import build_priority_queue, score_real_samples
 from utils.report import weekly_report_bytes
-from utils.routing import DEFAULT_THRESHOLDS
+from utils.routing import DEFAULT_THRESHOLDS, classify
 from utils.samples import image_for_id, load_samples
-from utils.style import CLASS_COLORS, STATUS_COLORS, status_tag
+from utils.style import CLASS_COLORS, STATUS_COLORS, status_badge, status_tag
 
 ROUTING_SUMMARY = [
     {"label": "자동통과", "n": 1194, "pct": 0.194, "status": "auto_pass"},
@@ -103,18 +103,50 @@ def _render_today_panel():
         st.metric(label, f"{val:.1%}", help=note)
 
 
-def _render_review_panel(image_id, row, samples):
+def _dummy_queue_items(thresholds):
+    """가중치 미탑재 시 폴백 — 더미 검증셋 기준 예시 큐. 실제 사진과 무관한
+    시연용 숫자임을 목록 헤더에서 명확히 경고한다."""
+    val_df = load_validation_predictions()
+    queue_df = build_priority_queue(val_df, thresholds, top_n=12)
+    items = []
+    for _, row in queue_df.iterrows():
+        items.append({
+            "image_id": row["image_id"],
+            "path": None,
+            "probs": {
+                "무결함": row["prob_무결함"],
+                "균열·용입불량(D1+D4)": row["prob_균열·용입불량(D1+D4)"],
+                "기공(D2)": row["prob_기공(D2)"],
+            },
+            "breakdown": None,
+            "status": row["status"],
+            "dominant_class": row["dominant_class"],
+            "calibrated_prob": row["calibrated_prob"],
+            "severity_score": row["severity_score"],
+        })
+    return items
+
+
+@st.dialog("케이스 검토", width="large")
+def _review_dialog(item, samples):
+    _render_review_panel(item, samples)
+
+
+def _render_review_panel(item, samples):
     from utils.model import gradcam_overlay
 
-    probs = {
-        "무결함": row["prob_무결함"],
-        "균열·용입불량(D1+D4)": row["prob_균열·용입불량(D1+D4)"],
-        "기공(D2)": row["prob_기공(D2)"],
-    }
-    st.markdown(f"#### 🔬 검토: `{image_id}` — 지배 클래스: {row['dominant_class']}")
-
-    img_path = image_for_id(image_id, samples)
+    image_id = item["image_id"]
+    img_path = item["path"] if item["path"] is not None else image_for_id(image_id, samples)
     pil_image = Image.open(img_path) if img_path else None
+
+    probs = item["probs"]
+    breakdown = item["breakdown"]
+    status = item["status"]
+    used_dummy = item["path"] is None
+
+    st.markdown(f"#### 🔬 검토: `{image_id}`")
+    if used_dummy:
+        st.warning("⚠ 모델 가중치 미탑재 — 큐의 예시 확률로 표시 중입니다 (실제 사진 내용과 다를 수 있음).")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -127,7 +159,8 @@ def _render_review_panel(image_id, row, samples):
         st.markdown("**Grad-CAM 히트맵**")
         overlay = None
         if pil_image is not None:
-            overlay, _ = gradcam_overlay(pil_image)
+            with st.spinner("히트맵 생성 중..."):
+                overlay, _ = gradcam_overlay(pil_image)
         if overlay is None:
             st.caption("모델 가중치 미탑재 — 더미 히트맵으로 대체")
             st.image(make_mock_gradcam_overlay(), width="stretch")
@@ -135,31 +168,41 @@ def _render_review_panel(image_id, row, samples):
             st.image(overlay, width="stretch")
 
     st.plotly_chart(_prob_bar_chart(probs), width="stretch", config={"displayModeBar": False})
+    st.markdown(status_badge(status), unsafe_allow_html=True)
+    if breakdown is not None:
+        st.caption(
+            f"세부 추정 (참고용, 판정에는 반영 안 됨): "
+            f"균열(D1) {breakdown['균열(D1) 추정']:.0%} · "
+            f"용입불량(D4) {breakdown['용입불량(D4) 추정']:.0%}"
+        )
 
     b1, b2 = st.columns(2)
     if b1.button("✅ 최종 양품 승인", key=f"approve_{image_id}", width="stretch"):
-        log_decision(image_id, probs, "attention", "승인(양품)")
+        log_decision(image_id, probs, status, "승인(양품)")
         st.session_state.setdefault("resolved_queue_items", {})[image_id] = "승인(양품)"
-        st.session_state.pop("selected_queue_item", None)
         st.success(f"{image_id} — 양품으로 확정 처리되었습니다.")
         st.rerun()
     if b2.button("⛔ 최종 불량 확정", key=f"reject_{image_id}", width="stretch"):
-        log_decision(image_id, probs, "attention", "반려(불량)")
+        log_decision(image_id, probs, status, "반려(불량)")
         st.session_state.setdefault("resolved_queue_items", {})[image_id] = "반려(불량)"
-        st.session_state.pop("selected_queue_item", None)
         st.success(f"{image_id} — 불량으로 확정 처리되었습니다.")
         st.rerun()
 
 
 def render():
     thresholds = st.session_state.get("thresholds", DEFAULT_THRESHOLDS)
-    val_df = load_validation_predictions()
-
-    queue = build_priority_queue(val_df, thresholds, top_n=12)
-    resolved_map = st.session_state.get("resolved_queue_items", {})
-    open_queue = queue[~queue["image_id"].isin(resolved_map.keys())]
     samples = load_samples()
-    selected_id = st.session_state.get("selected_queue_item")
+
+    # 가중치가 있으면 samples/ 폴더의 실제 사진을 실제 모델로 채점해서 진짜
+    # 애매한(사람 확인 필요) 사진만 심각도순으로 보여준다. 가중치가 없을 때만
+    # 더미 검증셋 기준 예시 큐로 폴백한다.
+    queue_items = score_real_samples(thresholds)
+    using_real = queue_items is not None
+    if not using_real:
+        queue_items = _dummy_queue_items(thresholds)
+
+    resolved_map = st.session_state.get("resolved_queue_items", {})
+    open_items = [it for it in queue_items if it["image_id"] not in resolved_map]
 
     # ------------------------------------------------------------
     # 첫 화면: 왼쪽 = 오늘의 처리 현황, 오른쪽 = 사람 확인 대기 큐(목록만)
@@ -173,7 +216,16 @@ def render():
     with col_right:
         with st.container(border=True):
             st.header("🔎 사람 확인 대기 · 심각도순")
-            st.caption("심각도(지배 클래스 위험도 × 보정 확률) 내림차순 — 위험한 것부터 확인하세요.")
+            if using_real:
+                st.caption(
+                    "samples/ 폴더 실제 사진을 실제 모델로 채점한 결과입니다 — "
+                    "심각도(지배 클래스 위험도 × 보정 확률) 내림차순."
+                )
+            else:
+                st.warning(
+                    "⚠ 모델 가중치 미탑재 — 아래는 더미 검증셋 기준 예시 큐입니다 "
+                    "(실제 사진과 무관한 시연용 숫자)."
+                )
 
             docx_bytes, docx_name = weekly_report_bytes(thresholds)
             r1, r2, r3 = st.columns([2.4, 1.3, 1.3])
@@ -190,37 +242,23 @@ def render():
                     key_prefix="weekly_today",
                 )
 
-            if open_queue.empty:
+            if not open_items:
                 st.success("대기 중인 사람 확인 케이스가 없습니다.")
             else:
-                for _, row in open_queue.iterrows():
-                    dom_color = (STATUS_COLORS["auto_reject"]["bg"] if row["dominant_class"] == "균열·용입불량(D1+D4)"
+                for item in open_items:
+                    dom_color = (STATUS_COLORS["auto_reject"]["bg"] if item["dominant_class"] == "균열·용입불량(D1+D4)"
                                  else STATUS_COLORS["attention"]["bg"])
                     with st.container(border=True):
                         c1, c2, c3 = st.columns([0.4, 2.2, 1.2])
                         c1.markdown(f'<span style="display:inline-block;width:14px;height:14px;border-radius:50%;'
                                     f'background:{dom_color};margin-top:8px;"></span>', unsafe_allow_html=True)
                         c2.markdown(
-                            f"**{row['image_id']}** &nbsp;·&nbsp; {row['dominant_class']}  \n"
-                            f"보정 확률 {row['calibrated_prob']:.2f} · 심각도 {row['severity_score']:.2f}",
+                            f"**{item['image_id']}** &nbsp;·&nbsp; {item['dominant_class']}  \n"
+                            f"보정 확률 {item['calibrated_prob']:.2f} · 심각도 {item['severity_score']:.2f}",
                             unsafe_allow_html=True,
                         )
-                        btn_label = "닫기 ▲" if row["image_id"] == selected_id else "검토하기"
-                        if c3.button(btn_label, key=f"select_{row['image_id']}", width="stretch"):
-                            if row["image_id"] == selected_id:
-                                st.session_state.pop("selected_queue_item", None)
-                            else:
-                                st.session_state["selected_queue_item"] = row["image_id"]
-                            st.rerun()
-
-    # ------------------------------------------------------------
-    # 검토 패널 — 선택 시 아래에 화면 전체 너비로 크게 표시
-    # ------------------------------------------------------------
-    if selected_id and selected_id in open_queue["image_id"].values:
-        row = open_queue[open_queue["image_id"] == selected_id].iloc[0]
-        st.divider()
-        with st.container(border=True):
-            _render_review_panel(selected_id, row, samples)
+                        if c3.button("검토하기", key=f"select_{item['image_id']}", width="stretch"):
+                            _review_dialog(item, samples)
 
     st.divider()
 
