@@ -30,6 +30,13 @@ CLASS_COLORS = {
 def inject_css():
     css = """
     <style>
+    /* 폰트 종류만 전체 통일 — 크기(font-size)·굵기(font-weight)는 절대 안 건드림.
+       Streamlit이 컴포넌트마다 다른 클래스를 자동 생성해서 붙이므로, 이를 다 잡아내려면
+       html/body와 와일드카드까지 넓게 걸어야 한다. */
+    html, body, [class*="css"], * {
+        font-family: 'Pretendard', 'Malgun Gothic', '맑은 고딕', sans-serif !important;
+    }
+
     .stApp {
         background-color: """ + PAGE_BG + """;
     }
