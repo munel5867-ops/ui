@@ -67,6 +67,7 @@ def inject_css():
         border-radius: 8px 8px 0 0;
         padding: 8px 18px;
         font-weight: 600;
+        font-size: 27px;
         color: """ + INK_SECONDARY + """;
     }
     .stTabs [aria-selected="true"] {
@@ -77,7 +78,7 @@ def inject_css():
         display: inline-block;
         padding: 7px 18px;
         border-radius: 20px;
-        font-size: 14px;
+        font-size: 29px;
         font-weight: 700;
         color: #fff;
     }
@@ -88,7 +89,7 @@ def inject_css():
         padding: 12px 18px;
         border-radius: 10px;
         margin-bottom: 14px;
-        font-size: 14px;
+        font-size: 29px;
         font-weight: 600;
     }
     </style>
@@ -105,5 +106,5 @@ def status_tag(status: str) -> str:
     s = STATUS_COLORS[status]
     return (
         '<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
-        'font-size:11px;font-weight:600;background:' + s["bg"] + '22;color:' + s["bg"] + ';">' + s["label"] + "</span>"
+        'font-size:26px;font-weight:600;background:' + s["bg"] + '22;color:' + s["bg"] + ';">' + s["label"] + "</span>"
     )

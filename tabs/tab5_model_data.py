@@ -5,7 +5,7 @@ import streamlit as st
 
 # 전체 차트에서 공통으로 쓰는 폰트 — style.py의 페이지 CSS와 통일시키기 위함.
 # Plotly는 브라우저 CSS를 안 따르고 SVG에 직접 폰트를 그리므로, 차트마다 이 값을 넣어줘야 함.
-CHART_FONT = dict(family="Pretendard, Malgun Gothic, sans-serif")
+CHART_FONT = dict(family="Pretendard, Malgun Gothic, sans-serif", size=24)
 
 # 아래 수치는 STAGE1~2 단계에서 실제로 측정된 검증 결과다 (필름 단위
 # StratifiedGroupKFold 5-fold 교차검증). 균열(D1)·용입불량(D4) 통합 결정은

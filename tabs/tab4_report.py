@@ -4,7 +4,7 @@ import streamlit as st
 
 from utils.dummy_data import load_validation_predictions
 from utils.mail_ui import render_send_email_popover
-from utils.report import build_weekly_report_docx
+from utils.report import weekly_report_bytes
 from utils.routing import DEFAULT_THRESHOLDS, compute_kpis
 
 
@@ -30,8 +30,8 @@ def render():
     with st.container(border=True):
         st.markdown(
             f"""
-<div style="border-left:4px solid #2a78d6;padding:4px 0 4px 14px;font-size:13px;line-height:1.8;color:#333;">
-<h4 style="margin:0 0 10px;font-size:15px;color:#184f95;">RT 결함 판독 시스템 — 주간 리포트 ({period_start.isoformat()} ~ {period_end.isoformat()})</h4>
+<div style="border-left:4px solid #2a78d6;padding:4px 0 4px 14px;font-size:28px;line-height:1.8;color:#333;">
+<h4 style="margin:0 0 10px;font-size:30px;color:#184f95;">RT 결함 판독 시스템 — 주간 리포트 ({period_start.isoformat()} ~ {period_end.isoformat()})</h4>
 총 검사 물량: <b>{total_count:,}건</b> &nbsp;|&nbsp; 자동화율: <b>{kpis['automation_rate']:.1%}</b> &nbsp;|&nbsp; 사람 확인: <b>{human_review_count:,}건</b><br>
 Margin 부족 보류: {margin_hold_count}건 &nbsp;|&nbsp; 균열(D1) 미검출: {d1_miss_count}건 &nbsp;|&nbsp; 용입불량(D4) 미검출: {d4_miss_count}건<br><br>
 <b>이상 신호:</b> {anomaly_note}<br>
@@ -41,19 +41,10 @@ Margin 부족 보류: {margin_hold_count}건 &nbsp;|&nbsp; 균열(D1) 미검출:
             unsafe_allow_html=True,
         )
 
-    docx_bytes = build_weekly_report_docx(
-        period_start=period_start,
-        period_end=period_end,
-        total_count=total_count,
-        automation_rate=kpis["automation_rate"],
-        human_review_count=human_review_count,
-        margin_hold_count=margin_hold_count,
-        d1_miss_count=d1_miss_count,
-        d4_miss_count=d4_miss_count,
-        anomaly_note=anomaly_note,
-        recommendation=recommendation,
-    )
-    docx_name = f"weekly_report_{period_end.isoformat()}.docx"
+    # 탭3(오늘의 현황)과 완전히 같은 로직·같은 양식(NCR 스타일)으로 통일된 공용 함수.
+    # 여기서 직접 docx를 다시 만들지 않고 그 함수 하나만 호출한다 — 두 곳이 따로
+    # 만들면 한쪽만 고쳤을 때 양식이 어긋나는 문제(이번에 난 ImportError의 원인)가 재발한다.
+    docx_bytes, docx_name = weekly_report_bytes(thresholds)
 
     c1, c2 = st.columns([1, 1])
     with c1:

@@ -76,11 +76,6 @@ k4.metric(
     help="검사자가 사람확인 대기열에서 최종 승인/반려로 확정한 건수 (① 오늘의 현황 탭 기준)",
 )
 
-st.caption(
-    f"⚙ 자동배출 임계값 — 자동배출 확률 {thresholds['confident_t']:.2f} · "
-    f"세부유형 확정 margin {thresholds['margin_threshold']:.0f}  (③ 임계값 조절 탭에서 변경)"
-)
-
 st.divider()
 
 # 탭(가로) 대신 사이드바 메뉴(세로)로 페이지를 전환한다. st.tabs는 선택 안 한 탭도

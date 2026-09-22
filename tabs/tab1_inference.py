@@ -10,6 +10,7 @@ import streamlit as st
 from PIL import Image
 
 from utils.dummy_data import demo_single_prediction, make_mock_gradcam_overlay
+from utils.ncr_report import ncr_bytes_for_case
 from utils.routing import DEFAULT_THRESHOLDS, classify
 from utils.style import CLASS_COLORS, status_badge
 
@@ -71,11 +72,11 @@ def _centered_image_html(title, img, caption_text, box_h, caption_color=None):
     return (
         f'<div style="height:{inner_h}px;display:flex;flex-direction:column;'
         f'align-items:center;justify-content:center;gap:10px;text-align:center">'
-        f'<h3 style="margin:0;font-size:1.15rem;font-weight:600">{title}</h3>'
+        f'<h3 style="margin:0;font-size:2.03rem;font-weight:600">{title}</h3>'
         f'<div style="width:100%;max-width:260px;aspect-ratio:1/1;border-radius:8px;'
         f'background-image:url(data:image/png;base64,{b64});'
         f'background-size:cover;background-position:center;"></div>'
-        f'<p style="font-size:0.82rem;color:{color};margin:0">{caption_text}</p>'
+        f'<p style="font-size:1.68rem;color:{color};margin:0">{caption_text}</p>'
         f'</div>'
     )
 
@@ -85,8 +86,8 @@ def _centered_placeholder_html(title, text, box_h):
     return (
         f'<div style="height:{inner_h}px;display:flex;flex-direction:column;'
         f'align-items:center;justify-content:center;gap:10px;text-align:center">'
-        f'<h3 style="margin:0;font-size:1.15rem;font-weight:600">{title}</h3>'
-        f'<p style="font-size:0.85rem;color:var(--text-secondary);margin:0">{text}</p>'
+        f'<h3 style="margin:0;font-size:2.03rem;font-weight:600">{title}</h3>'
+        f'<p style="font-size:1.68rem;color:var(--text-secondary);margin:0">{text}</p>'
         f'</div>'
     )
 
@@ -224,7 +225,7 @@ def render():
 
             pil_image = Image.open(io.BytesIO(image_bytes)) if image_bytes else None
 
-        BOX_H = 420  # 세 칸 다 이 높이로 고정 — 내용 양과 무관하게 크기 동일
+        BOX_H = 480  # 세 칸 다 이 높이로 고정 — 내용 양과 무관하게 크기 동일
 
         col1, col2, col3 = st.columns(3)
 
@@ -306,7 +307,19 @@ def render():
                     if b2.button("⛔ 반려", key="reject_btn", width="stretch",
                                   disabled=st.session_state["demo_playing"]):
                         _log_decision(source, probs, status, label, "반려(불량)")
-                        st.success("기록됨 — 불량 확정")
+                        defect_probs = {k: v for k, v in probs.items() if k != "무결함"}
+                        dominant_class = max(defect_probs, key=defect_probs.get)
+                        ncr_bytes, ncr_name = ncr_bytes_for_case(
+                            {"image_id": source, "dominant_class": dominant_class,
+                             "calibrated_prob": defect_probs[dominant_class]},
+                            "반려(불량)",
+                        )
+                        st.success("기록됨 — 불량 확정. 부적합보고서(NCR)가 자동 발행되었습니다.")
+                        st.download_button(
+                            "📄 NCR 다운로드", data=ncr_bytes, file_name=ncr_name,
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key="ncr_dl_tab1", width="stretch",
+                        )
                     if DECISION_LOG.exists():
                         n = sum(1 for _ in open(DECISION_LOG, encoding="utf-8-sig")) - 1
                         st.caption(f"검사자 결정 누적: {n}건 (`decision_log.csv`)")
