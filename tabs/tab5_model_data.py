@@ -1,7 +1,11 @@
-﻿import pandas as pd
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+
+# 전체 차트에서 공통으로 쓰는 폰트 — style.py의 페이지 CSS와 통일시키기 위함.
+# Plotly는 브라우저 CSS를 안 따르고 SVG에 직접 폰트를 그리므로, 차트마다 이 값을 넣어줘야 함.
+CHART_FONT = dict(family="Pretendard, Malgun Gothic, sans-serif")
 
 # 아래 수치는 STAGE1~2 단계에서 실제로 측정된 검증 결과다 (필름 단위
 # StratifiedGroupKFold 5-fold 교차검증). 균열(D1)·용입불량(D4) 통합 결정은
@@ -83,7 +87,7 @@ def render():
         )
     with col2:
         fig = px.bar(SPECIFICITY, x="클래스", y=["MobileNetV2", "EfficientNetB0"], barmode="group")
-        fig.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10))
+        fig.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10), font=CHART_FONT)
         st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     st.warning("두 모델 모두 특이도 목표치(0.99)에 미달했고, D4(용입불량)는 두 모델 다 최저치이자 fold 간 편차도 가장 큽니다 — 균열·용입불량 통합 결정의 핵심 근거입니다.")
 
@@ -93,7 +97,7 @@ def render():
         st.dataframe(AUC, width="stretch", hide_index=True)
     with col2:
         fig = px.bar(AUC, x="클래스", y=["PR-AUC(EffNet)", "ROC-AUC(EffNet)"], barmode="group")
-        fig.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10))
+        fig.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10), font=CHART_FONT)
         st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     st.caption("클래스 불균형 상황에서 ROC는 낙관적으로 보이는 경향이 있어, 실제 라인처럼 불량률이 낮을 때는 PR 지표를 우선 판단 근거로 삼습니다.")
 
@@ -104,7 +108,7 @@ def render():
         columns=["예측 D1", "예측 D2", "예측 D4", "예측 ND"],
     )
     fig = px.imshow(cm, text_auto=True, color_continuous_scale="Blues")
-    fig.update_layout(height=340, margin=dict(l=10, r=10, t=10, b=10))
+    fig.update_layout(height=340, margin=dict(l=10, r=10, t=10, b=10), font=CHART_FONT)
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     st.error("D1 행만 대각선(79)보다 오분류 칸(425, D4로 오분류)이 훨씬 큽니다 — fold1 검증셋의 필름 쏠림이 원인으로 추정되며, 균열·용입불량 통합 판정의 직접적 계기입니다.")
 
@@ -116,14 +120,14 @@ def render():
         st.markdown("**세그멘테이션 (U-Net)**")
         st.dataframe(SEG_IOU, width="stretch", hide_index=True)
         fig = px.bar(SEG_IOU, x="클래스", y="IoU", color="클래스")
-        fig.update_layout(height=260, showlegend=False, margin=dict(l=10, r=10, t=10, b=10))
+        fig.update_layout(height=260, showlegend=False, margin=dict(l=10, r=10, t=10, b=10), font=CHART_FONT)
         st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
         st.success("전체 평균 IoU 0.7426으로 기준(0.5)을 상회 — Grad-CAM 검증용 정답 마스크로 채택.")
     with col2:
         st.markdown("**Grad-CAM 정량 검증 — IoU vs 커버리지**")
         st.dataframe(GCAM, width="stretch", hide_index=True)
         fig = px.bar(GCAM, x="클래스", y=["IoU", "커버리지"], barmode="group")
-        fig.update_layout(height=260, margin=dict(l=10, r=10, t=10, b=10))
+        fig.update_layout(height=260, margin=dict(l=10, r=10, t=10, b=10), font=CHART_FONT)
         st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
         st.error("D4는 커버리지(0.562)도 세 클래스 중 가장 낮습니다 — 모델이 주목하는 위치 자체가 불안정하다는 뜻이며, 특이도·혼동행렬 결과와 같은 결론을 가리킵니다.")
 

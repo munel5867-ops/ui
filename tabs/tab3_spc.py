@@ -16,6 +16,10 @@ from utils.routing import DEFAULT_THRESHOLDS
 from utils.samples import image_for_id, load_samples
 from utils.style import CLASS_COLORS, STATUS_COLORS, status_badge
 
+# 전체 차트에서 공통으로 쓰는 폰트 — style.py의 페이지 CSS와 통일시키기 위함.
+# Plotly는 브라우저 CSS를 안 따르고 SVG에 직접 폰트를 그리므로, 차트마다 이 값을 넣어줘야 함.
+CHART_FONT = dict(family="Pretendard, Malgun Gothic, sans-serif")
+
 ROUTING_SUMMARY = [
     {"label": "자동통과", "n": 1194, "pct": 0.194, "status": "auto_pass"},
     {"label": "자동배출(세부확정)", "n": 2100, "pct": 0.342, "status": "auto_reject"},
@@ -43,7 +47,7 @@ def _mini_donut():
     colors = [STATUS_COLORS[r["status"]]["bg"] for r in ROUTING_SUMMARY]
     fig = go.Figure(go.Pie(labels=labels, values=values, marker_colors=colors, hole=0.55,
                             textinfo="percent", textfont=dict(size=13)))
-    fig.update_layout(height=230, margin=dict(l=0, r=0, t=10, b=10), showlegend=False)
+    fig.update_layout(height=230, margin=dict(l=0, r=0, t=10, b=10), showlegend=False, font=CHART_FONT)
     return fig
 
 
@@ -72,7 +76,8 @@ def _p_chart(df, forced_spike=False):
     fig.update_layout(height=190, margin=dict(l=10, r=10, t=10, b=10),
                        yaxis=dict(title=None, tickformat=".1%", gridcolor="#e1e0d9", tickfont=dict(size=10)),
                        xaxis=dict(gridcolor="#e1e0d9", tickfont=dict(size=10)),
-                       plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", showlegend=False)
+                       plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", showlegend=False,
+                       font=CHART_FONT)
     return fig
 
 
@@ -89,7 +94,8 @@ def _fishbone(kind):
     fig.update_xaxes(visible=False, range=[0, 1.2])
     fig.update_yaxes(visible=False, range=[0, 1])
     fig.update_layout(height=190, margin=dict(l=10, r=10, t=10, b=10),
-                       plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
+                       plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                       font=CHART_FONT)
     return fig
 
 
@@ -101,7 +107,8 @@ def _prob_bar_chart(probs):
                             text=[f"{v:.2f}" for v in values], textposition="outside"))
     fig.update_layout(xaxis=dict(range=[0, 1], gridcolor="#e1e0d9"), yaxis=dict(autorange="reversed"),
                        margin=dict(l=10, r=30, t=10, b=10), height=160,
-                       plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
+                       plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                       font=CHART_FONT)
     return fig
 
 
