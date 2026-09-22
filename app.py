@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 
 from tabs import tab1_inference, tab2_threshold, tab3_spc, tab4_report, tab5_model_data, tab6_limits
 from tabs.tab3_spc import CORE_KPIS, CRACK_SUSPECT_N, ROUTING_SUMMARY
@@ -57,7 +57,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# 상단 고정 요약 바 — 어느 탭에 있든 관리자가 1초 만에 오늘 상황을 파악할 수 있게.
 st.session_state.setdefault("thresholds", dict(DEFAULT_THRESHOLDS))
 thresholds = st.session_state["thresholds"]
 
@@ -65,8 +64,6 @@ total_n = sum(r["n"] for r in ROUTING_SUMMARY)
 human_review_n = ROUTING_SUMMARY[2]["n"]
 automation_rate = CORE_KPIS[0][1]
 
-# 사람확인 대기열에서 검사자가 오늘 세션 중 승인/반려로 확정한 건수 —
-# tab3_spc의 검토 패널(resolved_queue_items)과 같은 상태를 그대로 읽어온다.
 resolved_n = len(st.session_state.get("resolved_queue_items", {}))
 
 k1, k2, k3, k4 = st.columns(4)
@@ -79,8 +76,6 @@ k4.metric(
     help="검사자가 사람확인 대기열에서 최종 승인/반려로 확정한 건수 (① 오늘의 현황 탭 기준)",
 )
 
-# 임계값은 오늘의 '실적'이 아니라 시스템에 걸어둔 '설정값'이라 KPI 카드와 톤을
-# 섞지 않고, 조절 탭 위치를 안내하는 캡션 한 줄로만 별도 노출한다.
 st.caption(
     f"⚙ 자동배출 임계값 — 자동배출 확률 {thresholds['confident_t']:.2f} · "
     f"세부유형 확정 margin {thresholds['margin_threshold']:.0f}  (③ 임계값 조절 탭에서 변경)"
@@ -88,24 +83,20 @@ st.caption(
 
 st.divider()
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    ["① 오늘의 현황", "② 판정 데모", "③ 임계값 조절", "④ 모델·데이터 검증", "⑤ 한계·조치", "⑥ 자동보고서"]
-)
+# 탭(가로) 대신 사이드바 메뉴(세로)로 페이지를 전환한다. st.tabs는 선택 안 한 탭도
+# 매번 다 계산·렌더링하지만(숨기기만 함), 이 방식은 선택된 페이지만 실행해서
+# 더 가볍기도 하다.
+PAGES = {
+    "① 오늘의 현황": tab3_spc.render,
+    "② 판정 데모": tab1_inference.render,
+    "③ 임계값 조절": tab2_threshold.render,
+    "④ 모델·데이터 검증": tab5_model_data.render,
+    "⑤ 한계·조치": tab6_limits.render,
+    "⑥ 자동보고서": tab4_report.render,
+}
 
-with tab1:
-    tab3_spc.render()
+with st.sidebar:
+    st.markdown("### 📋 메뉴")
+    selected_page = st.radio("페이지 선택", list(PAGES.keys()), label_visibility="collapsed")
 
-with tab2:
-    tab1_inference.render()
-
-with tab3:
-    tab2_threshold.render()
-
-with tab4:
-    tab5_model_data.render()
-
-with tab5:
-    tab6_limits.render()
-
-with tab6:
-    tab4_report.render()
+PAGES[selected_page]()

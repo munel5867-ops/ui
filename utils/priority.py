@@ -1,20 +1,11 @@
-﻿"""
-'심각도 기반 정렬 큐' — 사람 확인이 필요한 케이스(attention, attention_crack,
-attention_margin 전부)를 시간순이 아니라 심각도(= 클래스 위험 가중치 × 확률)
-내림차순으로 정렬한다.
-
-[팀 결정 반영] D1/D4를 통합하지 않고 개별로 다루므로, 지배 클래스도 균열(D1)·
-용입불량(D4)·기공(D2) 세 개 중에서 고른다. 안전 직결도가 높은 균열·용입불량 쪽에
-더 큰 가중치를 준다.
-"""
 import numpy as np
 import pandas as pd
 
 from utils.routing import ATTENTION_STATUSES, route_dataframe_with_label
 
 CLASS_WEIGHT = {
-    "균열(D1)": 2.0,    # 안전 직결 — 우선
-    "용입불량(D4)": 2.0,  # 안전 직결 — 우선
+    "균열(D1)": 2.0,
+    "용입불량(D4)": 2.0,
     "기공(D2)": 1.0,
 }
 
@@ -43,7 +34,6 @@ def build_priority_queue(df, thresholds, top_n=12):
     return sub.sort_values("severity_score", ascending=False).head(top_n).reset_index(drop=True)
 
 
-# ---- SPC 이상 신호 + 6M 원인 스크리닝 ----
 SIX_M_FACTORS = ["사람(Man)", "설비(Machine)", "재료(Material)", "방법(Method)", "측정(Measurement)", "환경(Environment)"]
 
 
@@ -60,7 +50,6 @@ def spc_alert(df):
 
 
 def six_m_ranking(seed=3):
-    """실제 공정변수 로그 연동 전까지 쓰는 더미 순위 — 나중에 상관계수 계산으로 교체."""
     rng = np.random.default_rng(seed)
     scores = rng.uniform(0.2, 0.95, size=len(SIX_M_FACTORS))
     df = pd.DataFrame({"요인": SIX_M_FACTORS, "연관도": scores})
@@ -68,10 +57,6 @@ def six_m_ranking(seed=3):
 
 
 def _infer_all_samples():
-    """samples/ 폴더의 모든 실제 이미지에 모델 추론을 1회씩 돌려 캐시해둔다.
-    (임계값과 무관한 부분이라 여기서만 캐시하고, 임계값 적용은 score_real_samples에서
-    매번 가볍게 다시 계산한다 — 슬라이더 바꿀 때마다 모델을 다시 돌리지 않기 위함.)
-    반환: [{"image_id","path","probs"}, ...] 또는 가중치가 없으면 None."""
     import streamlit as st
     from PIL import Image
 
@@ -100,8 +85,6 @@ def _infer_all_samples():
 
 
 def score_real_samples(thresholds):
-    """캐시된 실제 추론 결과에 현재 임계값을 적용해, 사람확인이 필요한 케이스만
-    심각도순으로 정렬해 돌려준다. 모델 가중치가 없으면 None(폴백 신호)을 반환한다."""
     from utils.routing import classify
 
     inferred = _infer_all_samples()
@@ -129,3 +112,32 @@ def score_real_samples(thresholds):
         })
     rows.sort(key=lambda r: r["severity_score"], reverse=True)
     return rows
+
+
+# 초기 촬영조건 기준 평균 밝기 (참고값). 실제 운영 로그가 쌓이기 전까지는
+# "오늘 대비 이 기준값"으로만 비교한다 — 진짜 추세 그래프가 아니라 참고용 단일
+# 비교치임을 화면에도 명시할 것.
+BASELINE_BRIGHTNESS = 142
+
+
+def avg_sample_brightness():
+    """samples/ 폴더 실제 사진들의 평균 밝기(그레이스케일 픽셀 평균)를 계산한다.
+    모델 추론과 무관한 가벼운 계산이라 별도 캐시 없이 매번 계산해도 부담 없다.
+    사진이 없으면 None을 반환한다."""
+    from PIL import Image
+
+    from utils.samples import load_samples
+
+    samples = load_samples()
+    if not samples:
+        return None
+    total, n = 0.0, 0
+    for path in samples:
+        try:
+            img = Image.open(path).convert("L")
+            pixels = list(img.getdata())
+            total += sum(pixels) / len(pixels)
+            n += 1
+        except Exception:
+            continue
+    return total / n if n else None

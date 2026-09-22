@@ -1,4 +1,4 @@
-﻿import pandas as pd
+import pandas as pd
 import streamlit as st
 
 LIMITS = pd.DataFrame({
@@ -38,14 +38,17 @@ def _risk_style(v):
 
 
 def render():
-    st.subheader("현재 시스템의 한계")
-    st.caption("이 시스템이 보장하지 못하는 범위를 명시합니다. 감사·인증 대응 시 소명 근거로 사용합니다.")
-    st.dataframe(
-        LIMITS.style.map(_risk_style, subset=["위험도"]),
-        width="stretch", hide_index=True,
+    st.info(
+        "📋 이 화면은 감사·인증 심사 대응용 소명 자료입니다 — 이 시스템이 보장하지 못하는 범위를 "
+        "명시해둔 것입니다. 평소 업무에는 필요하지 않습니다."
     )
-
-    st.divider()
-
-    st.subheader("운영 전환 체크리스트")
-    st.dataframe(ACTIONS, width="stretch", hide_index=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("현재 시스템의 한계")
+        st.dataframe(
+            LIMITS.style.map(_risk_style, subset=["위험도"]),
+            width="stretch", hide_index=True, height=320,
+        )
+    with col2:
+        st.subheader("운영 전환 체크리스트")
+        st.dataframe(ACTIONS, width="stretch", hide_index=True, height=320)
