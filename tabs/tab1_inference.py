@@ -69,11 +69,15 @@ def _centered_image_html(title, img, caption_text, box_h, caption_color=None):
     b64 = base64.b64encode(buf.getvalue()).decode()
     color = caption_color or "var(--text-secondary)"
     inner_h = box_h - 60
+    # 제목(~25px)+캡션(~19px)+둘 사이 gap(10px씩) = 약 64px를 뺀 나머지를 사진에 다 준다.
+    # 스크롤바가 안 생기도록 여유(14px)를 더 빼고, 가로 폭도 min()으로 같이 제한해서
+    # 칸이 좁을 때도 사진이 옆으로 넘치지 않게 한다.
+    img_max = max(120, inner_h - 64 - 14)
     return (
         f'<div style="height:{inner_h}px;display:flex;flex-direction:column;'
         f'align-items:center;justify-content:center;gap:10px;text-align:center">'
         f'<h3 style="margin:0;font-size:1.3rem;font-weight:600">{title}</h3>'
-        f'<div style="width:100%;max-width:260px;aspect-ratio:1/1;border-radius:8px;'
+        f'<div style="width:100%;max-width:min(92%, {img_max}px);aspect-ratio:1/1;border-radius:8px;'
         f'background-image:url(data:image/png;base64,{b64});'
         f'background-size:cover;background-position:center;"></div>'
         f'<p style="font-size:1rem;color:{color};margin:0">{caption_text}</p>'
