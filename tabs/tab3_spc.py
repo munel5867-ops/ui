@@ -1,3 +1,5 @@
+import re
+
 import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image
@@ -12,10 +14,10 @@ from utils.priority import (
     build_priority_queue,
     score_real_samples,
 )
-from utils.report import weekly_report_bytes
+from utils.report import today_status_report_bytes
 from utils.routing import DEFAULT_THRESHOLDS
 from utils.samples import image_for_id, load_samples
-from utils.style import CLASS_COLORS, STATUS_COLORS, status_badge
+from utils.style import BRAND_BLUE, BRAND_NAVY, CLASS_COLORS, STATUS_COLORS, status_badge
 
 # 전체 차트에서 공통으로 쓰는 폰트 — style.py의 페이지 CSS와 통일시키기 위함.
 # Plotly는 브라우저 CSS를 안 따르고 SVG에 직접 폰트를 그리므로, 차트마다 이 값을 넣어줘야 함.
@@ -33,13 +35,84 @@ CORE_KPIS = [
     ("D4(용입불량) 미검출", 0.012, "TODO: 실측치로 교체"),
 ]
 
-# 특성요인도 원인 — "균열계열"은 조원이 이미 쓰던 용접 일반 원인을, "기공"은
-# 별도 근거(실드가스·건조 등)를 사용한다. 두 세트 다 실제 STAGE 보고서에서 이미
-# 쓰인 항목이라 지어낸 값이 아니다.
-CRACK_CAUSES = [("용접 전류", 0.75, 0.9), ("이음부 간격", 0.55, 0.9),
-                ("작업자 숙련도", 0.55, 0.1), ("모재 청결도", 0.75, 0.1)]
-POROSITY_CAUSES = [("실드가스 유량 부족", 0.75, 0.9), ("모재 수분/유분", 0.55, 0.9),
-                    ("용접봉 건조 불량", 0.55, 0.1), ("아크길이 과다", 0.75, 0.1)]
+# 특성요인도 원인(6M 기준) — "균열계열"은 D1(균열)·D4(용입불량)를 통합해서 다룬다
+# (routing.py의 설계 의도: 둘은 모델이 헷갈리기 쉬운 클래스라 사람에게 함께 넘긴다는
+# 원칙을 특성요인도에도 그대로 반영). "기공"은 D2 별도.
+# 값은 실제 용접공학 문헌(TWI, AWS 계열 기술문헌, ScienceDirect·arXiv 논문 등)에서
+# 반복적으로 확인되는 원인을 6M(사람/설비/재료/방법/측정/환경)로 분류한 것.
+FISHBONE_CAUSES = {
+    "crack": {
+        "label": "균열(D1)·용입불량(D4)",
+        "categories": [
+            ("사람(Man)", [
+                "WPS(용접절차서) 미준수 — 전류·속도·예열 임의 변경",
+                "토치각도·운봉 조작 미숙",
+                "용접봉 건조·보관 절차 소홀",
+            ]),
+            ("설비(Machine)", [
+                "용접기 전류·전압 출력 불안정",
+                "전극 건조로 미가동·고장",
+                "와이어 송급장치·노즐 결함",
+            ]),
+            ("재료(Material)", [
+                "모재 탄소당량(CE) 높음",
+                "이음부 개선각도·루트간격 설계 부적절",
+                "모재 표면 오염(녹·오일·밀스케일)",
+            ]),
+            ("방법(Method)", [
+                "예열·층간온도 관리 절차 미비",
+                "후열처리(PWHT)·루트패스 관리 절차 누락",
+                "WPS 전류·속도 범위가 이음부 형상과 불일치",
+            ]),
+            ("측정(Measurement)", [
+                "예열·층간온도 미측정",
+                "용접 전류·전압 실시간 모니터링 부재",
+                "루트간격·개선각도 시공 전 게이지 측정 누락",
+            ]),
+            ("환경(Environment)", [
+                "저온 작업환경(냉각속도 가속)",
+                "협소 작업공간(토치 접근각 제한)",
+                "높은 구조적 구속도(두꺼운 판재·복잡 이음부)",
+            ]),
+        ],
+    },
+    "porosity": {
+        "label": "기공(D2)",
+        "categories": [
+            ("사람(Man)", [
+                "모재 청소(탈지) 소홀",
+                "용접봉 보관·건조 절차 미준수",
+                "실드가스 유량 설정 오조작",
+            ]),
+            ("설비(Machine)", [
+                "가스라인 누설·노즐 막힘",
+                "유량계 고장·미보정",
+                "전극 건조로 미가동",
+            ]),
+            ("재료(Material)", [
+                "실드가스 순도 불량",
+                "모재/용접재료 수분 함유",
+                "표면 오염(오일·녹·아연도금)",
+            ]),
+            ("방법(Method)", [
+                "실드가스 유량 기준(35~45 CFH) 미준수",
+                "용접속도 과다로 실드 노출시간 부족",
+                "팁-워크 거리 과다",
+            ]),
+            ("측정(Measurement)", [
+                "실드가스 유량 미점검",
+                "이슬점(결로) 미확인",
+                "기공 검출 검사주기 미준수",
+            ]),
+            ("환경(Environment)", [
+                "강풍·기류(팬, 개방문)",
+                "고습도·온도차로 인한 결로",
+                "옥외 개방 작업환경",
+            ]),
+        ],
+    },
+}
+
 
 
 def _mini_donut():
@@ -75,7 +148,7 @@ def _p_chart(df, forced_spike=False):
     if not outliers.empty:
         fig.add_trace(go.Scatter(x=outliers["date"], y=outliers["defect_rate"], mode="markers",
                                   marker=dict(color="#d03b3b", size=9), name="이상점"))
-    fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10),
+    fig.update_layout(height=420, margin=dict(l=10, r=10, t=10, b=10),
                        yaxis=dict(title=None, tickformat=".1%", gridcolor="#e1e0d9", tickfont=dict(size=16)),
                        xaxis=dict(gridcolor="#e1e0d9", tickfont=dict(size=16)),
                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", showlegend=False,
@@ -83,22 +156,157 @@ def _p_chart(df, forced_spike=False):
     return fig
 
 
+def _spc_status(df, forced_spike=False):
+    """_p_chart()와 똑같은 계산으로 SPC 상태 값만 뽑는다 — 오늘의 현황 보고서용.
+    시연 버튼으로 차트에 이상점을 강제로 띄운 상태면 보고서도 화면과 같은 값으로 나간다."""
+    df = df.copy()
+    cl = df["defect_rate"].mean()
+    std = df["defect_rate"].std()
+    ucl = cl + 3 * std
+    if forced_spike:
+        df.loc[df.index[-1], "defect_rate"] = ucl * 1.15
+    latest = df.iloc[-1]
+    return {
+        "date": latest["date"],
+        "value": float(latest["defect_rate"]),
+        "cl": float(cl),
+        "ucl": float(ucl),
+        "breached": bool(latest["defect_rate"] > ucl),
+        "n_outliers": int((df["defect_rate"] > ucl).sum()),
+        "demo": forced_spike,
+    }
+
+
+
+# 특성요인도 색 — 새 색을 만들지 않고 style.py 팔레트에서만 고른다 (BRAND_NAVY/
+# BRAND_BLUE는 이미 배너·사이드바에, "#eda100"은 STATUS_COLORS["attention_margin"]·
+# CLASS_COLORS["기공(D2)"]에 이미 쓰이는 색).
+FISHBONE_COLORS = [BRAND_NAVY, BRAND_BLUE, "#eda100"]
+FISHBONE_FONT = "'IBM Plex Sans KR', 'Malgun Gothic', '맑은 고딕', sans-serif"  # 페이지 본문과 동일한 폰트 스택
+
+
+def _wrap_cause(text, max_chars=13):
+    """원인 문구가 길면 가운데 부근의 구분자(공백·가운뎃점·대시)에서 2줄로 접는다.
+    칸 폭에 15px 글자가 그대로 들어가면 옆 칸 글자와 겹치므로 필요."""
+    if len(text) <= max_chars:
+        return [text]
+    mid = len(text) / 2
+    seps = [i for i, ch in enumerate(text) if ch in " ·—"]
+    if seps:
+        cut = min(seps, key=lambda i: abs(i - mid))
+        if text[cut] == " ":
+            return [text[:cut].rstrip(), text[cut:].lstrip()]
+        return [text[:cut + 1], text[cut + 1:].lstrip()]
+    return [text[:max_chars], text[max_chars:]]
+
+
+# 헤더(화살표) 박스 — 크기 고정, 이전보다 더 크게. 안의 글자도 같이 키워서 빈 공간을 줄인다.
+HEADER_W, HEADER_H, HEADER_TIP = 220, 46, 22
+HEADER_FONT_SIZE = 18
+ITEM_FONT_SIZE = 16
+LINE_PITCH = 24  # 모든 줄(항목 내 줄바꿈이든, 항목과 항목 사이든) 동일한 간격
+TOP_MARGIN = 18
+GAP_HEADER_TO_ITEMS = 28
+GAP_ITEMS_TO_SPINE = 32
+SPINE_H, SPINE_TIP = 30, 34
+
+
+def _fishbone_category_svg(cx, top, header_y0, header_color, name, wrapped, spine_y, font):
+    """카테고리 하나(화살표 헤더 박스 + 원인 줄들 + 스파인으로 가는 점선)의 SVG 조각.
+    HEADER_W/HEADER_H는 항목 길이와 무관하게 항상 고정값 — 이름은 이 박스 정중앙에 배치한다.
+    header_y0(헤더 박스 top)은 호출부(_fishbone)가 전체 레이아웃을 보고 미리 계산해 넘긴다.
+    줄 간격은 항목 내 줄바꿈이든 항목 사이든 항상 LINE_PITCH 하나로 동일하다."""
+    lines_count = sum(len(w) for w in wrapped)
+    block_h = lines_count * LINE_PITCH
+
+    hx0 = cx - HEADER_W / 2
+    hy0, hy1 = header_y0, header_y0 + HEADER_H
+    if top:
+        first_baseline = hy1 + GAP_HEADER_TO_ITEMS
+    else:
+        first_baseline = hy0 - GAP_HEADER_TO_ITEMS - block_h + LINE_PITCH
+    points = (f"{hx0},{hy0} {hx0 + HEADER_W - HEADER_TIP},{hy0} {hx0 + HEADER_W},{(hy0 + hy1) / 2} "
+              f"{hx0 + HEADER_W - HEADER_TIP},{hy1} {hx0},{hy1}")
+
+    parts = [
+        f'<polygon points="{points}" fill="{header_color}" />',
+        f'<text x="{cx}" y="{(hy0 + hy1) / 2}" text-anchor="middle" dominant-baseline="central" '
+        f'font-family="{font}" font-size="{HEADER_FONT_SIZE}" font-weight="700" fill="#fff">{name}</text>',
+    ]
+
+    text_x0 = hx0 + 6
+    y_cursor = first_baseline
+    for item_lines in wrapped:
+        for j, line in enumerate(item_lines):
+            arrow = '<tspan dx="6" fill="#b7b6ad">→</tspan>' if j == len(item_lines) - 1 else ""
+            parts.append(
+                f'<text x="{text_x0}" y="{y_cursor}" font-family="{font}" font-size="{ITEM_FONT_SIZE}" '
+                f'fill="#3a3a36">{line}{arrow}</text>'
+            )
+            y_cursor += LINE_PITCH
+
+    # 대표 리브(점선) — 헤더의 뾰족한 끝점에서 출발해서, 항목 글자 칸(hx0+HEADER_W-10까지)보다
+    # 오른쪽 빈 공간만 지나 스파인까지 이어진다. 항목 칸과 같은 x를 지나가면 글자와 겹치므로
+    # 시작점(헤더 끝점)도 도착점(스파인 접점)도 항목 칸의 오른쪽 경계보다 항상 바깥쪽에 둔다.
+    tip_x = hx0 + HEADER_W
+    attach_x = tip_x + 30
+    parts.append(
+        f'<line x1="{tip_x}" y1="{(hy0 + hy1) / 2}" x2="{attach_x}" y2="{spine_y}" '
+        f'stroke="#cfcec6" stroke-width="1.2" stroke-dasharray="2.5,3" />'
+    )
+    return "".join(parts)
+
+
 def _fishbone(kind):
-    causes = CRACK_CAUSES if kind == "crack" else POROSITY_CAUSES
-    label = "균열(D1)·용입불량(D4)" if kind == "crack" else "기공(D2)"
-    fig = go.Figure()
-    fig.add_shape(type="line", x0=0.05, y0=0.5, x1=0.95, y1=0.5, line=dict(color="#52514e", width=3))
-    fig.add_annotation(x=0.98, y=0.5, text=label, showarrow=False, xanchor="left", font=dict(size=16))
-    for lab, cx, cy in causes:
-        fig.add_shape(type="line", x0=cx, y0=0.5, x1=cx - 0.15, y1=cy, line=dict(color="#c3c2b7"))
-        fig.add_annotation(x=cx - 0.15, y=cy, text=lab, showarrow=False,
-                            yshift=12 if cy > 0.5 else -12, font=dict(size=16))
-    fig.update_xaxes(visible=False, range=[0, 1.2])
-    fig.update_yaxes(visible=False, range=[0, 1])
-    fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10),
-                       plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                       font=CHART_FONT)
-    return fig
+    """특성요인도(6M) — 화살표 헤더 6개(위 3 · 아래 3) + 각 3개 원인 + 가운데 스파인.
+    plotly가 아니라 순수 SVG로 그린다 — 헤더 박스 크기를 고정하고 글자를 정중앙에
+    두기 쉽고, 폰트도 페이지 본문과 같은 스택을 그대로 쓸 수 있어서다.
+    화면 폭에 맞춰 축소되지 않도록 실제 px 그대로 그리고(뷰박스=표시크기 1:1),
+    폭이 좁으면 감싸는 div가 가로 스크롤된다 — 그래야 글자 크기가 항상 보장된다."""
+    spec = FISHBONE_CAUSES[kind]
+    font = FISHBONE_FONT
+    xs = [200, 480, 760]
+
+    wrapped_top = [[_wrap_cause(t) for t in items] for _, items in spec["categories"][:3]]
+    wrapped_bottom = [[_wrap_cause(t) for t in items] for _, items in spec["categories"][3:]]
+    max_lines_top = max(sum(len(w) for w in cat) for cat in wrapped_top)
+    max_lines_bottom = max(sum(len(w) for w in cat) for cat in wrapped_bottom)
+    block_h_top = max_lines_top * LINE_PITCH
+    block_h_bottom = max_lines_bottom * LINE_PITCH
+
+    top_header_y0 = TOP_MARGIN
+    spine_y0 = top_header_y0 + HEADER_H + GAP_HEADER_TO_ITEMS + block_h_top + GAP_ITEMS_TO_SPINE
+    spine_y1 = spine_y0 + SPINE_H
+    spine_y_mid = (spine_y0 + spine_y1) / 2
+    bottom_header_y0 = spine_y1 + GAP_ITEMS_TO_SPINE + block_h_bottom + GAP_HEADER_TO_ITEMS
+    total_h = bottom_header_y0 + HEADER_H + TOP_MARGIN
+    total_w = 960
+
+    svg_parts = []
+    spine_x0, spine_x1, spine_tip = 20, total_w - 20, SPINE_TIP
+    svg_parts.append(
+        f'<polygon points="{spine_x0},{spine_y0} {spine_x1 - spine_tip},{spine_y0} '
+        f'{spine_x1},{spine_y_mid} {spine_x1 - spine_tip},{spine_y1} '
+        f'{spine_x0},{spine_y1}" fill="#8f8d85" />'
+    )
+    svg_parts.append(
+        f'<text x="{spine_x1 - spine_tip - 16}" y="{spine_y_mid}" text-anchor="end" '
+        f'dominant-baseline="central" font-family="{font}" font-size="19" font-weight="700" '
+        f'fill="#fff">{spec["label"]}</text>'
+    )
+
+    for i, (name, _) in enumerate(spec["categories"][:3]):
+        svg_parts.append(_fishbone_category_svg(
+            xs[i], True, top_header_y0, FISHBONE_COLORS[i], name, wrapped_top[i], spine_y1, font))
+    for i, (name, _) in enumerate(spec["categories"][3:]):
+        svg_parts.append(_fishbone_category_svg(
+            xs[i], False, bottom_header_y0, FISHBONE_COLORS[i], name, wrapped_bottom[i], spine_y0, font))
+
+    svg = (
+        f'<svg viewBox="0 0 {total_w} {total_h}" width="{total_w}" height="{total_h}" '
+        f'xmlns="http://www.w3.org/2000/svg">' + "".join(svg_parts) + "</svg>"
+    )
+    return f'<div style="overflow-x:auto">{svg}</div>'
 
 
 def _prob_bar_chart(probs):
@@ -221,7 +429,9 @@ def render():
     # 1단: 왼쪽(밝기 드리프트) — 가운데(허브: 도넛+4개 KPI) — 오른쪽(사람확인 대기)
     # "오늘 처리 완료"는 상단 KPI 바("오늘 처리하기")와 중복되어 삭제함.
     # ------------------------------------------------------------
-    PANEL_H = 580  # 도넛을 키우고 하단에 표를 넣어서 더 넉넉하게
+    # 오늘 처리현황 패널(도넛+표)이 스크롤바 없이 다 들어가도록 여유 있게 잡은 값
+    # (제목+도넛420px+표 약 88px+컨테이너 패딩까지 실측상 580으로는 빠듯해서 늘림).
+    PANEL_H = 640  # 도넛을 키우고 하단에 표를 넣어서 더 넉넉하게
     col_left, col_mid, col_right = st.columns([0.85, 1.3, 1])
 
     with col_left:
@@ -253,26 +463,27 @@ def render():
                 band_width = _pct(band_high) - band_left
                 marker_left = _pct(brightness)
 
-                # 위젯이 없는 순수 HTML이라 하나의 div로 감싸 세로 중앙정렬 —
-                # 하단이 비어 보이던 문제를 여기서 해결한다.
+                # 위젯이 없는 순수 HTML이라 하나의 div로 감싸 세로 중앙정렬.
+                # 게이지 막대·숫자 자체를 키워서 칸이 커진 만큼 내용도 같이 커지게 한다
+                # (여백만 넓히면 그대로 비어 보이므로, 실제 그림 요소 크기를 늘리는 쪽).
                 st.markdown(
-                    '<div style="height:500px;display:flex;flex-direction:column;'
-                    'justify-content:center;gap:10px">'
-                    f'<p style="font-size:28px;font-weight:800;margin:0">{brightness:.0f}</p>'
-                    f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
-                    f'background:{status_color};color:#fff;font-size:16px;font-weight:600;'
+                    f'<div style="height:{PANEL_H - 70}px;display:flex;flex-direction:column;'
+                    'justify-content:center;gap:14px">'
+                    f'<p style="font-size:38px;font-weight:800;margin:0">{brightness:.0f}</p>'
+                    f'<span style="display:inline-block;padding:4px 14px;border-radius:14px;'
+                    f'background:{status_color};color:#fff;font-size:17px;font-weight:600;'
                     f'width:fit-content">{status_label}</span>'
                     f'<p style="font-size:16px;color:var(--text-muted);margin:4px 0 0">'
                     f'기준 {BASELINE_BRIGHTNESS} 대비 {arrow}{abs(diff_pct):.0f}% '
                     f'(samples/ 폴더 실측 평균 · ±10% 이내 정상)</p>'
 
-                    f'<div style="position:relative;height:56px;background:#eef0f2;'
-                    f'border-radius:10px;margin:18px 0 6px">'
+                    f'<div style="position:relative;height:96px;background:#eef0f2;'
+                    f'border-radius:16px;margin:26px 0 10px">'
                     f'<div style="position:absolute;left:{band_left:.1f}%;width:{band_width:.1f}%;'
-                    f'height:100%;background:#d7f2d1;border-radius:10px"></div>'
-                    f'<div style="position:absolute;left:{marker_left:.1f}%;top:-8px;width:6px;'
-                    f'height:72px;background:{status_color};border-radius:3px;'
-                    f'transform:translateX(-3px)"></div>'
+                    f'height:100%;background:#d7f2d1;border-radius:16px"></div>'
+                    f'<div style="position:absolute;left:{marker_left:.1f}%;top:-10px;width:8px;'
+                    f'height:116px;background:{status_color};border-radius:4px;'
+                    f'transform:translateX(-4px)"></div>'
                     f'</div>'
                     f'<div style="display:flex;justify-content:space-between;font-size:16px;'
                     f'color:var(--text-muted);margin-bottom:16px">'
@@ -293,6 +504,8 @@ def render():
 
     with col_mid:
         with st.container(height=PANEL_H, border=True):
+            # 제목은 다른 칸들과 통일되게 왼쪽 위 그대로 두고, 빈 공간은 아래 도넛/차트를
+            # 키우는 쪽으로 처리한다(제목 위에 여백을 넣으면 칸마다 제목 위치가 달라짐).
             st.markdown('<p style="font-size:18px;font-weight:600;margin:0 0 4px">📊 오늘 처리현황</p>',
                         unsafe_allow_html=True)
             st.plotly_chart(_mini_donut(), width="stretch", config={"displayModeBar": False})
@@ -329,15 +542,28 @@ def render():
             if not using_real:
                 st.caption("⚠ 가중치 미탑재 — 더미 예시 큐")
 
-            docx_bytes, docx_name = weekly_report_bytes(thresholds)
+            # 이 패널의 보고서는 주간 NCR 양식이 아니라, 이 화면(오늘의 현황)에 떠 있는
+            # 값만 담은 전용 양식이다 — utils/report.py의 today_status_report_bytes() 참고.
+            docx_bytes, docx_name = today_status_report_bytes(
+                routing_summary=ROUTING_SUMMARY,
+                core_kpis=CORE_KPIS,
+                open_items=open_items,
+                approved_n=approved_n,
+                rejected_n=rejected_n,
+                ncr_list=[(img_id, v[1]) for img_id, v in st.session_state.get("ncr_reports", {}).items()],
+                spc=_spc_status(spc_daily_defect_rate(),
+                                forced_spike=st.session_state.get("spc_demo_type") is not None),
+                thresholds=thresholds,
+            )
             r1, r2 = st.columns(2)
             r1.download_button("📄 보고서", data=docx_bytes, file_name=docx_name,
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                 width="stretch")
             with r2:
                 render_send_email_popover(
-                    docx_bytes, docx_name, subject="[RT 검사] 주간 자동보고서",
-                    body="첨부된 주간 자동보고서를 확인해 주세요.", key_prefix="weekly_today",
+                    docx_bytes, docx_name, subject="[RT 검사] 오늘의 현황 보고서",
+                    body="첨부된 오늘의 현황 보고서를 확인해 주세요. (대시보드에서 자동 생성됨)",
+                    key_prefix="today_status",
                 )
 
             if not open_items:
@@ -374,11 +600,15 @@ def render():
     # ------------------------------------------------------------
     demo_type = st.session_state.get("spc_demo_type")  # None | "crack" | "porosity"
 
-    PANEL2_H = 560  # 헤더+버튼줄+차트(320px)+경고배너까지 다 들어가도록 넉넉하게
+    # 특성요인도(6M)가 커지면서 실제로 필요한 높이가 늘어, 스크롤바가 안 생기게 다시 계산한 값
+    # (균열계열 다이어그램 실측 566px + 제목 30px + 정렬용 여백 40px + 컨테이너 패딩 약 40px + 여유 14px).
+    PANEL2_H = 690
     col_spc, col_fish = st.columns([1.3, 1])
 
     with col_spc:
         with st.container(height=PANEL2_H, border=True):
+            # 제목은 다른 칸들과 통일되게 왼쪽 위 그대로 두고, 빈 공간은 아래 차트를
+            # 키우는 쪽으로 처리한다(제목 위에 여백을 넣으면 칸마다 제목 위치가 달라짐).
             sh1, sh2 = st.columns([1.6, 1])
             sh1.markdown('<p style="font-size:18px;font-weight:600;margin:0">📊 SPC 관리도</p>', unsafe_allow_html=True)
             with sh2:
@@ -401,17 +631,20 @@ def render():
         with st.container(height=PANEL2_H, border=True):
             if demo_type is not None:
                 label = "균열·용입불량 원인분석" if demo_type == "crack" else "기공 원인분석"
+                fishbone_html = _fishbone(demo_type)
+                # 실제로 그려질 높이를 SVG에서 그대로 읽어서, 제목 포함 전체가 박스 안에서
+                # 위아래로 균형 있게(중앙에 가깝게) 오도록 위쪽 여백을 계산한다.
+                fish_h_match = re.search(r'height="([0-9.]+)"', fishbone_html)
+                fish_h = float(fish_h_match.group(1)) if fish_h_match else 500.0
+                fish_top_gap = max(8, (PANEL2_H - 32 - 29 - fish_h) / 2)
                 st.markdown(f'<p style="font-size:18px;font-weight:600;margin:0">🔧 {label}</p>', unsafe_allow_html=True)
-                # 차트는 실제 위젯이라 완전한 flex 중앙정렬이 안 되므로, 계산된
-                # 위쪽 여백으로 SPC 패널(제목+버튼줄+차트)과 눈높이를 맞춘다.
-                st.markdown('<div style="height:40px"></div>', unsafe_allow_html=True)
-                st.plotly_chart(_fishbone(demo_type), width="stretch", config={"displayModeBar": False})
+                st.markdown(f'<div style="height:{fish_top_gap}px"></div>', unsafe_allow_html=True)
+                st.markdown(fishbone_html, unsafe_allow_html=True)
             else:
                 st.markdown('<p style="font-size:18px;font-weight:600;margin:0">🔧 특성요인도</p>', unsafe_allow_html=True)
                 st.markdown(
                     f'<div style="height:{PANEL2_H - 80}px;display:flex;flex-direction:column;'
                     'align-items:center;justify-content:center;text-align:center;gap:10px">'
-                    '<p style="font-size:16px;color:var(--text-muted);margin:0">현재 이상 신호 없음<br>'
-                    '(시연 버튼을 누르면 원인분석이 표시됩니다)</p></div>',
+                    '<p style="font-size:16px;color:var(--text-muted);margin:0">현재 이상 신호 없음</p></div>',
                     unsafe_allow_html=True,
                 )

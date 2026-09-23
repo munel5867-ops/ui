@@ -11,6 +11,11 @@ BRAND_NAVY = "#032639"  # 메인테마 색 (RGB 3,38,57)
 PAGE_BG = "#f9f9f7"
 INK_SECONDARY = "#52514e"
 
+# 상단 고정 배너 높이(px). 배너가 position:fixed라 문서 흐름에서 빠지므로, 본문 위쪽 여백과
+# 사이드바 시작 위치를 전부 이 값 하나로 맞춘다 — 배너 글자 크기를 바꾸면 이 값만 고칠 것.
+# (제목 37px×1.25 + 간격 6px + 부제 21px×1.5 ≈ 84px, 위아래 여백 포함 142px)
+HEADER_H = 142
+
 STATUS_COLORS = {
     "auto_pass": {"bg": "#0ca30c", "icon": "✅", "label": "자동 통과"},
     "attention": {"bg": "#fab219", "icon": "⚠", "label": "사람 확인 필요"},
@@ -77,9 +82,9 @@ def inject_css():
        이 방식은 사이드바 유무·폭과 완전히 무관해서 안전하다. */
     .block-container, [data-testid="stMainBlockContainer"] {
         /* 배너를 position:fixed로 화면에 고정하면 배너가 문서 흐름에서
-           빠지므로, 그 높이(약 132px)만큼 본문 위쪽 여백을 직접 확보해야
+           빠지므로, 그 높이(HEADER_H)만큼 본문 위쪽 여백을 직접 확보해야
            본문이 배너 뒤에 가려지지 않는다. */
-        padding-top: 132px !important;
+        padding-top: """ + str(HEADER_H) + """px !important;
         padding-left: 2rem !important;
         padding-right: 2rem !important;
     }
@@ -95,7 +100,7 @@ def inject_css():
            있어서(그걸 고치려다 스크롤 자체를 망가뜨린 적 있음), 조상 구조와
            완전히 무관하게 동작하는 fixed로 바꾼다 — 뷰포트 기준으로 그냥
            화면 맨 위에 못박아 놓는 방식이라 부작용이 없다.
-           사이드바는 배너 높이(132px)만큼 아래에서 시작하도록 따로 밀어놨지만,
+           사이드바는 배너 높이(HEADER_H)만큼 아래에서 시작하도록 따로 밀어놨지만,
            혹시라도 겹치는 경우에 배너가 무조건 위에 그려지도록 z-index를
            사이드바보다 훨씬 높게 못박아 둔다. */
         position: fixed;
@@ -104,27 +109,40 @@ def inject_css():
         right: 0;
         z-index: 999999;
     }
+    /* 배너 높이를 HEADER_H로 못박고 글자는 세로 가운데 정렬한다. Streamlit이 마크다운
+       h1에 자체 padding(위 1.25rem/아래 1rem)을 넣기 때문에, 높이를 내용에 맡기면
+       실제 배너 높이가 본문 여백(HEADER_H)과 어긋날 수 있다 — 그래서 h1/p의
+       padding/margin/line-height를 전부 !important로 직접 지정한다. */
     .rt-header {
         background: linear-gradient(135deg, """ + BRAND_NAVY + """ 0%, """ + BRAND_BLUE + """ 100%);
         color: #fff;
-        padding: 28px 2rem;
+        height: """ + str(HEADER_H) + """px !important;
+        padding: 0 2rem !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
         border-radius: 0;
         margin: 0;
         width: 100%;
         box-sizing: border-box;
     }
     .rt-header h1 {
-        margin: 0;
-        font-size: 32px;
+        margin: 0 !important;
+        padding: 0 !important;
+        font-size: 37px !important;
         font-weight: 700 !important;
         letter-spacing: -0.3px;
-        line-height: 1.25;
+        line-height: 1.25 !important;
+        color: #fff !important;
     }
     .rt-header p {
-        margin: 6px 0 0;
-        font-size: 16px;
-        font-weight: 600;
+        margin: 6px 0 0 !important;
+        padding: 0 !important;
+        font-size: 21px !important;
+        font-weight: 600 !important;
+        line-height: 1.5 !important;
         opacity: 0.9;
+        color: #fff !important;
     }
     .stTabs [data-baseweb="tab-list"] {
         gap: 4px;
@@ -211,16 +229,16 @@ def inject_css():
     section[data-testid="stSidebar"] {
         background-color: """ + BRAND_NAVY + """ !important;
         padding: 0 !important;
-        /* 배너(fixed, 높이 132px)랑 안 겹치게 그만큼 아래에서 시작하고,
+        /* 배너(fixed, 높이 HEADER_H)랑 안 겹치게 그만큼 아래에서 시작하고,
            그만큼 높이도 줄인다 — z-index로 덮어서 가리는 방식은 배너 글자
            앞부분이 실제로 사이드바 뒤에 가려지는 문제가 있어서 이 방식으로 바꿈 */
-        margin-top: 132px !important;
-        min-height: calc(100vh - 132px) !important;
-        height: calc(100vh - 132px) !important;
+        margin-top: """ + str(HEADER_H) + """px !important;
+        min-height: calc(100vh - """ + str(HEADER_H) + """px) !important;
+        height: calc(100vh - """ + str(HEADER_H) + """px) !important;
         overflow-y: auto !important;
         /* 스크롤해도 화면에 고정 (배너 바로 아래 지점에서 고정) */
         position: sticky !important;
-        top: 132px !important;
+        top: """ + str(HEADER_H) + """px !important;
         align-self: flex-start !important;
         z-index: 1 !important;
     }
