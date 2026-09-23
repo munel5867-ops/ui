@@ -120,9 +120,8 @@ def score_real_samples(thresholds):
 BASELINE_BRIGHTNESS = 142
 
 
-def avg_sample_brightness():
-    """samples/ 폴더 실제 사진들의 평균 밝기(그레이스케일 픽셀 평균)를 계산한다.
-    모델 추론과 무관한 가벼운 계산이라 별도 캐시 없이 매번 계산해도 부담 없다.
+def sample_brightness_stats():
+    """samples/ 폴더 실제 사진들의 밝기 통계(평균/표본수/최소/최대)를 계산한다.
     사진이 없으면 None을 반환한다."""
     from PIL import Image
 
@@ -131,13 +130,27 @@ def avg_sample_brightness():
     samples = load_samples()
     if not samples:
         return None
-    total, n = 0.0, 0
+    values = []
     for path in samples:
         try:
             img = Image.open(path).convert("L")
             pixels = list(img.getdata())
-            total += sum(pixels) / len(pixels)
-            n += 1
+            values.append(sum(pixels) / len(pixels))
         except Exception:
             continue
-    return total / n if n else None
+    if not values:
+        return None
+    return {
+        "mean": sum(values) / len(values),
+        "n": len(values),
+        "min": min(values),
+        "max": max(values),
+    }
+
+
+def avg_sample_brightness():
+    """samples/ 폴더 실제 사진들의 평균 밝기(그레이스케일 픽셀 평균)를 계산한다.
+    모델 추론과 무관한 가벼운 계산이라 별도 캐시 없이 매번 계산해도 부담 없다.
+    사진이 없으면 None을 반환한다."""
+    stats = sample_brightness_stats()
+    return stats["mean"] if stats else None

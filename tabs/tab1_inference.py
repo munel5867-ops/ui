@@ -12,7 +12,7 @@ from PIL import Image
 from utils.dummy_data import demo_single_prediction, make_mock_gradcam_overlay
 from utils.ncr_report import ncr_bytes_for_case
 from utils.routing import DEFAULT_THRESHOLDS, classify
-from utils.style import CLASS_COLORS, status_badge
+from utils.style import CLASS_COLORS, STATUS_COLORS, status_badge
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SAMPLES_DIR = PROJECT_ROOT / "samples"
@@ -72,11 +72,11 @@ def _centered_image_html(title, img, caption_text, box_h, caption_color=None):
     return (
         f'<div style="height:{inner_h}px;display:flex;flex-direction:column;'
         f'align-items:center;justify-content:center;gap:10px;text-align:center">'
-        f'<h3 style="margin:0;font-size:2.03rem;font-weight:600">{title}</h3>'
+        f'<h3 style="margin:0;font-size:1.3rem;font-weight:600">{title}</h3>'
         f'<div style="width:100%;max-width:260px;aspect-ratio:1/1;border-radius:8px;'
         f'background-image:url(data:image/png;base64,{b64});'
         f'background-size:cover;background-position:center;"></div>'
-        f'<p style="font-size:1.68rem;color:{color};margin:0">{caption_text}</p>'
+        f'<p style="font-size:1rem;color:{color};margin:0">{caption_text}</p>'
         f'</div>'
     )
 
@@ -86,8 +86,8 @@ def _centered_placeholder_html(title, text, box_h):
     return (
         f'<div style="height:{inner_h}px;display:flex;flex-direction:column;'
         f'align-items:center;justify-content:center;gap:10px;text-align:center">'
-        f'<h3 style="margin:0;font-size:2.03rem;font-weight:600">{title}</h3>'
-        f'<p style="font-size:1.68rem;color:var(--text-secondary);margin:0">{text}</p>'
+        f'<h3 style="margin:0;font-size:1.3rem;font-weight:600">{title}</h3>'
+        f'<p style="font-size:1rem;color:var(--text-secondary);margin:0">{text}</p>'
         f'</div>'
     )
 
@@ -338,7 +338,18 @@ def render():
                 hcols = st.columns(len(recent))
                 for j, rec in enumerate(recent):
                     with hcols[j]:
-                        st.image(rec["thumb"], width=HISTORY_THUMB_PX)
+                        # "사람 확인 필요" 계열(attention*)만 빨강/주황 테두리로 강조.
+                        # auto_pass/auto_reject는 이미 자동으로 확정된 케이스라 강조 안 함.
+                        needs_review = rec["status"] in ("attention", "attention_crack", "attention_margin")
+                        border_color = STATUS_COLORS[rec["status"]]["bg"] if needs_review else "transparent"
+                        thumb_b64 = base64.b64encode(rec["thumb"]).decode()
+                        st.markdown(
+                            f'<img src="data:image/png;base64,{thumb_b64}" '
+                            f'style="width:{HISTORY_THUMB_PX}px;height:{HISTORY_THUMB_PX}px;'
+                            f'object-fit:cover;border-radius:8px;'
+                            f'border:4px solid {border_color};display:block;" />',
+                            unsafe_allow_html=True,
+                        )
                         top_label = max(rec["probs"], key=rec["probs"].get)
                         top_val = rec["probs"][top_label]
                         st.caption(

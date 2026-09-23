@@ -8,7 +8,7 @@ from utils.ncr_report import ncr_bytes_for_case
 from utils.dummy_data import load_validation_predictions, make_mock_gradcam_overlay, spc_daily_defect_rate
 from utils.priority import (
     BASELINE_BRIGHTNESS,
-    avg_sample_brightness,
+    sample_brightness_stats,
     build_priority_queue,
     score_real_samples,
 )
@@ -19,7 +19,7 @@ from utils.style import CLASS_COLORS, STATUS_COLORS, status_badge
 
 # 전체 차트에서 공통으로 쓰는 폰트 — style.py의 페이지 CSS와 통일시키기 위함.
 # Plotly는 브라우저 CSS를 안 따르고 SVG에 직접 폰트를 그리므로, 차트마다 이 값을 넣어줘야 함.
-CHART_FONT = dict(family="Pretendard, Malgun Gothic, sans-serif", size=23)
+CHART_FONT = dict(family="Pretendard, Malgun Gothic, sans-serif", size=16)
 
 ROUTING_SUMMARY = [
     {"label": "자동통과", "n": 1194, "pct": 0.194, "status": "auto_pass"},
@@ -47,8 +47,9 @@ def _mini_donut():
     values = [r["n"] for r in ROUTING_SUMMARY]
     colors = [STATUS_COLORS[r["status"]]["bg"] for r in ROUTING_SUMMARY]
     fig = go.Figure(go.Pie(labels=labels, values=values, marker_colors=colors, hole=0.55,
-                            textinfo="percent", textfont=dict(size=27)))
-    fig.update_layout(height=300, margin=dict(l=0, r=0, t=10, b=10), showlegend=False, font=CHART_FONT)
+                            textinfo="percent", textfont=dict(size=16)))
+    fig.update_layout(height=420, margin=dict(l=0, r=0, t=10, b=10), showlegend=False, font=CHART_FONT,
+                       plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
     return fig
 
 
@@ -74,9 +75,9 @@ def _p_chart(df, forced_spike=False):
     if not outliers.empty:
         fig.add_trace(go.Scatter(x=outliers["date"], y=outliers["defect_rate"], mode="markers",
                                   marker=dict(color="#d03b3b", size=9), name="이상점"))
-    fig.update_layout(height=240, margin=dict(l=10, r=10, t=10, b=10),
-                       yaxis=dict(title=None, tickformat=".1%", gridcolor="#e1e0d9", tickfont=dict(size=24)),
-                       xaxis=dict(gridcolor="#e1e0d9", tickfont=dict(size=24)),
+    fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10),
+                       yaxis=dict(title=None, tickformat=".1%", gridcolor="#e1e0d9", tickfont=dict(size=16)),
+                       xaxis=dict(gridcolor="#e1e0d9", tickfont=dict(size=16)),
                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", showlegend=False,
                        font=CHART_FONT)
     return fig
@@ -87,14 +88,14 @@ def _fishbone(kind):
     label = "균열(D1)·용입불량(D4)" if kind == "crack" else "기공(D2)"
     fig = go.Figure()
     fig.add_shape(type="line", x0=0.05, y0=0.5, x1=0.95, y1=0.5, line=dict(color="#52514e", width=3))
-    fig.add_annotation(x=0.98, y=0.5, text=label, showarrow=False, xanchor="left", font=dict(size=25))
+    fig.add_annotation(x=0.98, y=0.5, text=label, showarrow=False, xanchor="left", font=dict(size=16))
     for lab, cx, cy in causes:
         fig.add_shape(type="line", x0=cx, y0=0.5, x1=cx - 0.15, y1=cy, line=dict(color="#c3c2b7"))
         fig.add_annotation(x=cx - 0.15, y=cy, text=lab, showarrow=False,
-                            yshift=12 if cy > 0.5 else -12, font=dict(size=24))
+                            yshift=12 if cy > 0.5 else -12, font=dict(size=16))
     fig.update_xaxes(visible=False, range=[0, 1.2])
     fig.update_yaxes(visible=False, range=[0, 1])
-    fig.update_layout(height=240, margin=dict(l=10, r=10, t=10, b=10),
+    fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10),
                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                        font=CHART_FONT)
     return fig
@@ -194,7 +195,7 @@ def _render_review_panel(item, samples):
         ncr_bytes, ncr_name = ncr_bytes_for_case(item, "반려(불량)")
         st.session_state.setdefault("ncr_reports", {})[image_id] = (ncr_bytes, ncr_name)
         st.success(f"{image_id} — 불량으로 확정 처리되었습니다. 부적합보고서(NCR)가 자동 발행되었습니다 "
-                   f"— '🔎 사람확인 대기' 패널 아래 '📄 발행된 NCR'에서 다운로드하세요.")
+                   f"— '🔎 위험도순 확인' 패널 아래 '📄 발행된 NCR'에서 다운로드하세요.")
         st.rerun()
 
 
@@ -214,77 +215,116 @@ def render():
     rejected_n = sum(1 for v in resolved_map.values() if "반려" in v)
     done_n = approved_n + rejected_n
 
-    brightness = avg_sample_brightness()
+    brightness_stats = sample_brightness_stats()
 
     # ------------------------------------------------------------
     # 1단: 왼쪽(밝기 드리프트) — 가운데(허브: 도넛+4개 KPI) — 오른쪽(사람확인 대기)
     # "오늘 처리 완료"는 상단 KPI 바("오늘 처리하기")와 중복되어 삭제함.
     # ------------------------------------------------------------
-    PANEL_H = 300
+    PANEL_H = 580  # 도넛을 키우고 하단에 표를 넣어서 더 넉넉하게
     col_left, col_mid, col_right = st.columns([0.85, 1.3, 1])
 
     with col_left:
         with st.container(height=PANEL_H, border=True):
             st.markdown(
-                '<p style="font-size:28px;color:var(--text-secondary);margin:0 0 8px">'
+                '<p style="font-size:18px;font-weight:600;color:var(--text-secondary);margin:0 0 8px">'
                 '☀ 입력 밝기 드리프트</p>',
                 unsafe_allow_html=True,
             )
-            if brightness is not None:
+            if brightness_stats is not None:
+                brightness = brightness_stats["mean"]
                 diff_pct = (brightness - BASELINE_BRIGHTNESS) / BASELINE_BRIGHTNESS * 100
                 arrow = "↓" if diff_pct < 0 else "↑"
                 is_ok = abs(diff_pct) <= 10
                 status_color = "#0ca30c" if is_ok else "#eda100"
                 status_label = "정상 범위" if is_ok else "주의 — 촬영 조건 점검 권장"
 
+                # 범위 게이지 — 기준±30% 스케일에서 ±10% 정상 구간을 초록으로 표시하고
+                # 현재 값 위치에 막대 마커를 찍는다. (요청에 따라 더 크게)
+                scale_min = BASELINE_BRIGHTNESS * 0.7
+                scale_max = BASELINE_BRIGHTNESS * 1.3
+                band_low = BASELINE_BRIGHTNESS * 0.9
+                band_high = BASELINE_BRIGHTNESS * 1.1
+
+                def _pct(v):
+                    return max(0.0, min(100.0, (v - scale_min) / (scale_max - scale_min) * 100))
+
+                band_left = _pct(band_low)
+                band_width = _pct(band_high) - band_left
+                marker_left = _pct(brightness)
+
+                # 위젯이 없는 순수 HTML이라 하나의 div로 감싸 세로 중앙정렬 —
+                # 하단이 비어 보이던 문제를 여기서 해결한다.
                 st.markdown(
-                    f'<p style="font-size:26px;font-weight:600;margin:0 0 6px">{brightness:.0f}</p>'
+                    '<div style="height:500px;display:flex;flex-direction:column;'
+                    'justify-content:center;gap:10px">'
+                    f'<p style="font-size:28px;font-weight:800;margin:0">{brightness:.0f}</p>'
                     f'<span style="display:inline-block;padding:2px 10px;border-radius:12px;'
-                    f'background:{status_color};color:#fff;font-size:27px;font-weight:600;margin-bottom:8px">'
-                    f'{status_label}</span>',
+                    f'background:{status_color};color:#fff;font-size:16px;font-weight:600;'
+                    f'width:fit-content">{status_label}</span>'
+                    f'<p style="font-size:16px;color:var(--text-muted);margin:4px 0 0">'
+                    f'기준 {BASELINE_BRIGHTNESS} 대비 {arrow}{abs(diff_pct):.0f}% '
+                    f'(samples/ 폴더 실측 평균 · ±10% 이내 정상)</p>'
+
+                    f'<div style="position:relative;height:56px;background:#eef0f2;'
+                    f'border-radius:10px;margin:18px 0 6px">'
+                    f'<div style="position:absolute;left:{band_left:.1f}%;width:{band_width:.1f}%;'
+                    f'height:100%;background:#d7f2d1;border-radius:10px"></div>'
+                    f'<div style="position:absolute;left:{marker_left:.1f}%;top:-8px;width:6px;'
+                    f'height:72px;background:{status_color};border-radius:3px;'
+                    f'transform:translateX(-3px)"></div>'
+                    f'</div>'
+                    f'<div style="display:flex;justify-content:space-between;font-size:16px;'
+                    f'color:var(--text-muted);margin-bottom:16px">'
+                    f'<span>{scale_min:.0f}</span><span>기준 {BASELINE_BRIGHTNESS}</span>'
+                    f'<span>{scale_max:.0f}</span></div>'
+
+                    f'<p style="font-size:16px;color:var(--text-secondary);margin:0 0 4px">'
+                    f'표본 {brightness_stats["n"]}장 · 범위 '
+                    f'{brightness_stats["min"]:.0f}~{brightness_stats["max"]:.0f}</p>'
+                    '<p style="font-size:16px;color:var(--text-muted);margin:0">'
+                    '촬영 조건(노출·필름 상태)이 학습 데이터와 달라지면 모델 정확도가 '
+                    '떨어질 수 있어, 이 지표로 조기에 감지합니다.</p>'
+                    '</div>',
                     unsafe_allow_html=True,
                 )
-                st.caption(f"기준 {BASELINE_BRIGHTNESS} 대비 {arrow}{abs(diff_pct):.0f}% "
-                           f"(samples/ 폴더 실측 평균 · ±10% 이내 정상)")
             else:
                 st.caption("samples/ 폴더에 사진이 없어 계산할 수 없습니다.")
 
     with col_mid:
         with st.container(height=PANEL_H, border=True):
-            hc1, hc2, hc3 = st.columns([1, 1.1, 1])
-            with hc1:
-                st.markdown(
-                    '<div style="height:262px;display:flex;flex-direction:column;justify-content:center;overflow-y:auto;'
-                    'align-items:center;text-align:center;gap:16px">'
-                    f'<div><p style="font-size:27px;color:var(--text-secondary);margin:0">자동화율</p>'
-                    f'<p style="font-size:33px;font-weight:600;margin:0">{CORE_KPIS[0][1]:.1%}</p></div>'
-                    '<div><p style="font-size:12px;color:var(--text-secondary);margin:0">사람확인 대기</p>'
-                    f'<p style="font-size:18px;font-weight:600;margin:0">{len(open_items)}건</p></div>'
-                    '</div>',
-                    unsafe_allow_html=True,
-                )
-            with hc2:
-                st.plotly_chart(_mini_donut(), width="stretch", config={"displayModeBar": False})
-                st.markdown('<p style="font-size:26px;color:var(--text-secondary);text-align:center;margin:-8px 0 0">오늘 처리현황</p>',
-                            unsafe_allow_html=True)
-            with hc3:
-                d1_color = "#0ca30c" if CORE_KPIS[1][1] == 0 else "#d03b3b"
-                d4_color = "#0ca30c" if CORE_KPIS[2][1] == 0 else "#d03b3b"
-                st.markdown(
-                    '<div style="height:262px;display:flex;flex-direction:column;justify-content:center;overflow-y:auto;'
-                    'align-items:center;text-align:center;gap:16px">'
-                    f'<div><p style="font-size:27px;color:var(--text-secondary);margin:0">D1 미검출</p>'
-                    f'<p style="font-size:33px;font-weight:600;margin:0;color:{d1_color}">{CORE_KPIS[1][1]:.1%}</p></div>'
-                    f'<div><p style="font-size:27px;color:var(--text-secondary);margin:0">D4 미검출</p>'
-                    f'<p style="font-size:33px;font-weight:600;margin:0;color:{d4_color}">{CORE_KPIS[2][1]:.1%}</p></div>'
-                    '</div>',
-                    unsafe_allow_html=True,
-                )
+            st.markdown('<p style="font-size:18px;font-weight:600;margin:0 0 4px">📊 오늘 처리현황</p>',
+                        unsafe_allow_html=True)
+            st.plotly_chart(_mini_donut(), width="stretch", config={"displayModeBar": False})
+
+            d1_color = "#0ca30c" if CORE_KPIS[1][1] == 0 else "#d03b3b"
+            d4_color = "#0ca30c" if CORE_KPIS[2][1] == 0 else "#d03b3b"
+            st.markdown(
+                '<table style="width:100%;border-collapse:collapse;text-align:center;margin-top:8px">'
+                '<tr>'
+                '<th style="padding:6px 4px;font-size:16px;color:var(--text-secondary);font-weight:600;'
+                'border-bottom:2px solid #e6e6e6">자동화율</th>'
+                '<th style="padding:6px 4px;font-size:16px;color:var(--text-secondary);font-weight:600;'
+                'border-bottom:2px solid #e6e6e6">사람확인 대기</th>'
+                '<th style="padding:6px 4px;font-size:16px;color:var(--text-secondary);font-weight:600;'
+                'border-bottom:2px solid #e6e6e6">D1 미검출</th>'
+                '<th style="padding:6px 4px;font-size:16px;color:var(--text-secondary);font-weight:600;'
+                'border-bottom:2px solid #e6e6e6">D4 미검출</th>'
+                '</tr>'
+                '<tr>'
+                f'<td style="padding:8px 4px;font-size:22px;font-weight:700">{CORE_KPIS[0][1]:.1%}</td>'
+                f'<td style="padding:8px 4px;font-size:22px;font-weight:700">{len(open_items)}건</td>'
+                f'<td style="padding:8px 4px;font-size:22px;font-weight:700;color:{d1_color}">{CORE_KPIS[1][1]:.1%}</td>'
+                f'<td style="padding:8px 4px;font-size:22px;font-weight:700;color:{d4_color}">{CORE_KPIS[2][1]:.1%}</td>'
+                '</tr>'
+                '</table>',
+                unsafe_allow_html=True,
+            )
 
     with col_right:
         with st.container(height=PANEL_H, border=True):
             h1, h2 = st.columns([2, 1])
-            h1.markdown('<p style="font-size:14px;font-weight:600;margin:0">🔎 사람확인 대기</p>', unsafe_allow_html=True)
+            h1.markdown('<p style="font-size:18px;font-weight:600;margin:0">🔎 위험도순 확인</p>', unsafe_allow_html=True)
             h2.caption(f"{len(open_items)}건")
             if not using_real:
                 st.caption("⚠ 가중치 미탑재 — 더미 예시 큐")
@@ -310,7 +350,7 @@ def render():
                     c1, c2, c3 = st.columns([0.3, 2, 1])
                     c1.markdown(f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'
                                 f'background:{dom_color};margin-top:6px;"></span>', unsafe_allow_html=True)
-                    c2.markdown(f"<span style='font-size:12px'>{item['image_id']} · {item['dominant_class']} · "
+                    c2.markdown(f"<span style='font-size:17px'>{item['image_id']} · {item['dominant_class']} · "
                                 f"{item['calibrated_prob']:.2f}</span>", unsafe_allow_html=True)
                     if c3.button("검토하기", key=f"select_{item['image_id']}", width="stretch"):
                         _review_dialog(item, samples)
@@ -334,13 +374,13 @@ def render():
     # ------------------------------------------------------------
     demo_type = st.session_state.get("spc_demo_type")  # None | "crack" | "porosity"
 
-    PANEL2_H = 340
+    PANEL2_H = 560  # 헤더+버튼줄+차트(320px)+경고배너까지 다 들어가도록 넉넉하게
     col_spc, col_fish = st.columns([1.3, 1])
 
     with col_spc:
         with st.container(height=PANEL2_H, border=True):
             sh1, sh2 = st.columns([1.6, 1])
-            sh1.markdown('<p style="font-size:28px;font-weight:600;margin:0">📊 SPC 관리도</p>', unsafe_allow_html=True)
+            sh1.markdown('<p style="font-size:18px;font-weight:600;margin:0">📊 SPC 관리도</p>', unsafe_allow_html=True)
             with sh2:
                 bb1, bb2 = st.columns(2)
                 if bb1.button("균열계열 시연", key="demo_crack", width="stretch"):
@@ -361,14 +401,17 @@ def render():
         with st.container(height=PANEL2_H, border=True):
             if demo_type is not None:
                 label = "균열·용입불량 원인분석" if demo_type == "crack" else "기공 원인분석"
-                st.markdown(f'<p style="font-size:28px;font-weight:600;margin:0 0 6px">🔧 {label}</p>', unsafe_allow_html=True)
-                st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
+                st.markdown(f'<p style="font-size:18px;font-weight:600;margin:0">🔧 {label}</p>', unsafe_allow_html=True)
+                # 차트는 실제 위젯이라 완전한 flex 중앙정렬이 안 되므로, 계산된
+                # 위쪽 여백으로 SPC 패널(제목+버튼줄+차트)과 눈높이를 맞춘다.
+                st.markdown('<div style="height:40px"></div>', unsafe_allow_html=True)
                 st.plotly_chart(_fishbone(demo_type), width="stretch", config={"displayModeBar": False})
             else:
-                st.markdown('<p style="font-size:28px;font-weight:600;margin:0 0 6px">🔧 특성요인도</p>', unsafe_allow_html=True)
+                st.markdown('<p style="font-size:18px;font-weight:600;margin:0">🔧 특성요인도</p>', unsafe_allow_html=True)
                 st.markdown(
-                    '<div style="height:290px;display:flex;align-items:center;justify-content:center;text-align:center">'
-                    '<p style="font-size:27px;color:var(--text-muted);margin:0">현재 이상 신호 없음<br>'
+                    f'<div style="height:{PANEL2_H - 80}px;display:flex;flex-direction:column;'
+                    'align-items:center;justify-content:center;text-align:center;gap:10px">'
+                    '<p style="font-size:16px;color:var(--text-muted);margin:0">현재 이상 신호 없음<br>'
                     '(시연 버튼을 누르면 원인분석이 표시됩니다)</p></div>',
                     unsafe_allow_html=True,
                 )

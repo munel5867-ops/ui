@@ -30,8 +30,8 @@ def render():
     with st.container(border=True):
         st.markdown(
             f"""
-<div style="border-left:4px solid #2a78d6;padding:4px 0 4px 14px;font-size:28px;line-height:1.8;color:#333;">
-<h4 style="margin:0 0 10px;font-size:30px;color:#184f95;">RT 결함 판독 시스템 — 주간 리포트 ({period_start.isoformat()} ~ {period_end.isoformat()})</h4>
+<div style="border-left:4px solid #2a78d6;padding:4px 0 4px 14px;font-size:16px;line-height:1.8;color:#333;">
+<h4 style="margin:0 0 10px;font-size:18px;color:#184f95;">RT 결함 판독 시스템 — 주간 리포트 ({period_start.isoformat()} ~ {period_end.isoformat()})</h4>
 총 검사 물량: <b>{total_count:,}건</b> &nbsp;|&nbsp; 자동화율: <b>{kpis['automation_rate']:.1%}</b> &nbsp;|&nbsp; 사람 확인: <b>{human_review_count:,}건</b><br>
 Margin 부족 보류: {margin_hold_count}건 &nbsp;|&nbsp; 균열(D1) 미검출: {d1_miss_count}건 &nbsp;|&nbsp; 용입불량(D4) 미검출: {d4_miss_count}건<br><br>
 <b>이상 신호:</b> {anomaly_note}<br>
