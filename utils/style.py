@@ -177,6 +177,15 @@ def inject_css():
         font-size: 16px;
         font-weight: 700;
     }
+    /* 위험도순 확인 / 담당자 알림 패널의 긴급(빨강) 점 깜빡임 —
+       투명도만 오가게 해서 레이아웃(크기·위치)에는 영향이 없다. */
+    @keyframes rt-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.25; }
+    }
+    .rt-blink-dot {
+        animation: rt-pulse 1s ease-in-out infinite;
+    }
 
     /* ------------------------------------------------------------------
        탭②③④⑤⑥ 최저 글자 크기 보장 — 지금까지 커스텀 크기를 지정한 적이

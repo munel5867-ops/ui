@@ -88,8 +88,8 @@ def _kpi_card(label, value, icon, icon_bg, note=None, progress_pct=None):
         'display:flex;flex-direction:column;justify-content:space-between;box-sizing:border-box;">'
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;">'
         '<div>'
-        f'<p style="font-size:15px;color:var(--text-secondary);margin:0;font-weight:600">{label}</p>'
-        f'<p style="font-size:28px;font-weight:800;margin:6px 0 0">{value}</p>'
+        f'<p style="font-size:25px;color:var(--text-secondary);margin:0;font-weight:600">{label}</p>'
+        f'<p style="font-size:38px;font-weight:800;margin:6px 0 0">{value}</p>'
         '</div>'
         f'<div style="width:42px;height:42px;border-radius:12px;background:{icon_bg}22;'
         'display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">'
@@ -122,9 +122,9 @@ PAGES = {
     "오늘의 현황": tab3_spc.render,
     "판정 데모": tab1_inference.render,
     "임계값 조절": tab2_threshold.render,
-    "모델·데이터 검증": tab5_model_data.render,
     "한계·조치": tab6_limits.render,
     "자동보고서": tab4_report.render,
+    "모델·데이터 검증": tab5_model_data.render,
 }
 PAGE_ICONS = {
     # 색이 있는 이모지(📊🔍 등)는 어두운 사이드바 테마와 안 어울려서, 앱 다른
@@ -133,9 +133,9 @@ PAGE_ICONS = {
     "오늘의 현황": "▦",
     "판정 데모": "◎",
     "임계값 조절": "⚙\ufe0e",
-    "모델·데이터 검증": "☑\ufe0e",
     "한계·조치": "⚠\ufe0e",
     "자동보고서": "▤",
+    "모델·데이터 검증": "☑\ufe0e",
 }
 
 # 전에 쓰던 streamlit-option-menu는 iframe 안에서 그려지는 외부 컴포넌트라,

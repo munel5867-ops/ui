@@ -6,6 +6,7 @@ from PIL import Image
 
 from utils.decisions import log_decision
 from utils.mail_ui import render_send_email_popover
+from utils.mailer import default_recipient, is_configured, send_email
 from utils.ncr_report import ncr_bytes_for_case
 from utils.dummy_data import load_validation_predictions, make_mock_gradcam_overlay, spc_daily_defect_rate
 from utils.priority import (
@@ -29,6 +30,11 @@ ROUTING_SUMMARY = [
     {"label": "사람확인", "n": 2846, "pct": 0.464, "status": "attention"},
 ]
 CRACK_SUSPECT_N = 204
+# 위험도순 목록 색상 문턱값 — build_priority_queue()/score_real_samples()가 이미 계산해주는
+# severity_score(결함별 가중치 × 확률, utils/priority.py CLASS_WEIGHT) 기준.
+# D1·D4는 가중치 2.0이라 확률 0.8 이상이면 1.6을 넘어 긴급으로 잡힌다.
+SEVERITY_URGENT = 1.6   # 빨강 + 깜빡임 — 담당자 메일 알림 대상
+SEVERITY_WARNING = 1.0  # 주황
 CORE_KPIS = [
     ("자동화율", 0.341, "자동통과 + margin>=90 자동배출 기준 (TODO: 실측치로 교체)"),
     ("D1(균열) 미검출", 0.0, "TODO: 실측치로 교체"),
@@ -432,12 +438,12 @@ def render():
     # 오늘 처리현황 패널(도넛+표)이 스크롤바 없이 다 들어가도록 여유 있게 잡은 값
     # (제목+도넛420px+표 약 88px+컨테이너 패딩까지 실측상 580으로는 빠듯해서 늘림).
     PANEL_H = 640  # 도넛을 키우고 하단에 표를 넣어서 더 넉넉하게
-    col_left, col_mid, col_right = st.columns([0.85, 1.3, 1])
+    col_left, col_right, col_mail, col_mid = st.columns([0.6, 1, 0.8, 1.3])
 
     with col_left:
         with st.container(height=PANEL_H, border=True):
             st.markdown(
-                '<p style="font-size:18px;font-weight:600;color:var(--text-secondary);margin:0 0 8px">'
+                '<p style="font-size:25px;font-weight:600;margin:0 0 8px">'
                 '☀ 입력 밝기 드리프트</p>',
                 unsafe_allow_html=True,
             )
@@ -467,7 +473,7 @@ def render():
                 # 게이지 막대·숫자 자체를 키워서 칸이 커진 만큼 내용도 같이 커지게 한다
                 # (여백만 넓히면 그대로 비어 보이므로, 실제 그림 요소 크기를 늘리는 쪽).
                 st.markdown(
-                    f'<div style="height:{PANEL_H - 70}px;display:flex;flex-direction:column;'
+                    f'<div style="height:{PANEL_H - 80}px;display:flex;flex-direction:column;'
                     'justify-content:center;gap:14px">'
                     f'<p style="font-size:38px;font-weight:800;margin:0">{brightness:.0f}</p>'
                     f'<span style="display:inline-block;padding:4px 14px;border-radius:14px;'
@@ -506,7 +512,7 @@ def render():
         with st.container(height=PANEL_H, border=True):
             # 제목은 다른 칸들과 통일되게 왼쪽 위 그대로 두고, 빈 공간은 아래 도넛/차트를
             # 키우는 쪽으로 처리한다(제목 위에 여백을 넣으면 칸마다 제목 위치가 달라짐).
-            st.markdown('<p style="font-size:18px;font-weight:600;margin:0 0 4px">📊 오늘 처리현황</p>',
+            st.markdown('<p style="font-size:25px;font-weight:600;margin:0 0 8px">📊 오늘 처리현황</p>',
                         unsafe_allow_html=True)
             st.plotly_chart(_mini_donut(), width="stretch", config={"displayModeBar": False})
 
@@ -537,7 +543,7 @@ def render():
     with col_right:
         with st.container(height=PANEL_H, border=True):
             h1, h2 = st.columns([2, 1])
-            h1.markdown('<p style="font-size:18px;font-weight:600;margin:0">🔎 위험도순 확인</p>', unsafe_allow_html=True)
+            h1.markdown('<p style="font-size:25px;font-weight:600;margin:0 0 8px">🔎 위험도순 확인</p>', unsafe_allow_html=True)
             h2.caption(f"{len(open_items)}건")
             if not using_real:
                 st.caption("⚠ 가중치 미탑재 — 더미 예시 큐")
@@ -570,16 +576,110 @@ def render():
                 st.success("대기 케이스 없음")
             else:
                 for item in open_items:
-                    dom_color = (STATUS_COLORS["attention_crack"]["bg"]
-                                 if item["dominant_class"] in ("균열(D1)", "용입불량(D4)")
-                                 else STATUS_COLORS["attention"]["bg"])
+                    score = item.get("severity_score", 0.0)
+                    if score >= SEVERITY_URGENT:
+                        dom_color = STATUS_COLORS["auto_reject"]["bg"]  # 빨강 — 긴급
+                        blink_class = "rt-blink-dot"  # 점·글자 둘 다 같은 깜빡임 애니메이션 재사용
+                        text_style = f"font-size:17px;font-weight:700;color:{dom_color}"
+                    elif score >= SEVERITY_WARNING:
+                        dom_color = "#eda100"  # 주황 — 위험 (CLASS_COLORS["기공(D2)"]와 동일 색)
+                        blink_class = ""
+                        text_style = "font-size:17px;font-weight:600"
+                    else:
+                        dom_color = (STATUS_COLORS["attention_crack"]["bg"]
+                                     if item["dominant_class"] in ("균열(D1)", "용입불량(D4)")
+                                     else STATUS_COLORS["attention"]["bg"])
+                        blink_class = ""
+                        text_style = "font-size:17px"
                     c1, c2, c3 = st.columns([0.3, 2, 1])
-                    c1.markdown(f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'
-                                f'background:{dom_color};margin-top:6px;"></span>', unsafe_allow_html=True)
-                    c2.markdown(f"<span style='font-size:17px'>{item['image_id']} · {item['dominant_class']} · "
-                                f"{item['calibrated_prob']:.2f}</span>", unsafe_allow_html=True)
+                    c1.markdown(f'<span class="{blink_class}" style="display:inline-block;width:12px;height:12px;'
+                                f'border-radius:50%;background:{dom_color};margin-top:5px;"></span>',
+                                unsafe_allow_html=True)
+                    c2.markdown(f"<span class='{blink_class}' style='{text_style}'>{item['image_id']} · "
+                                f"{item['dominant_class']} · {item['calibrated_prob']:.2f}</span>",
+                                unsafe_allow_html=True)
                     if c3.button("검토하기", key=f"select_{item['image_id']}", width="stretch"):
                         _review_dialog(item, samples)
+
+    urgent_items = [it for it in open_items if it.get("severity_score", 0.0) >= SEVERITY_URGENT]
+
+    with col_mail:
+        with st.container(height=PANEL_H, border=True):
+            st.markdown('<p style="font-size:25px;font-weight:600;margin:0 0 8px">🚨 담당자 알림</p>',
+                        unsafe_allow_html=True)
+            if not urgent_items:
+                st.markdown(
+                    f'<div style="height:{PANEL_H - 100}px;display:flex;flex-direction:column;'
+                    'align-items:center;justify-content:center;text-align:center;gap:10px">'
+                    '<p style="font-size:16px;color:var(--text-muted);margin:0">현재 긴급 항목 없음<br>'
+                    f'(severity_score ≥ {SEVERITY_URGENT} 기준)</p></div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f'<div class="rt-alert-banner" style="margin-bottom:10px">⚠ '
+                    f'<b>긴급 {len(urgent_items)}건</b> — 담당자 확인이 필요합니다.</div>',
+                    unsafe_allow_html=True,
+                )
+                # 한 줄로 쭉 나열하지 않고 결함 유형별로 묶어서 보여준다 — 유형이 여러 개일 때
+                # 자연스럽게 공간을 더 쓰게 되고, 어떤 유형이 몇 건인지도 바로 보인다.
+                groups = {}
+                for it in urgent_items:
+                    groups.setdefault(it["dominant_class"], []).append(it)
+
+                SHOWN_CAP = 8
+                shown = 0
+                for cls, group_items in groups.items():
+                    st.markdown(
+                        f'<p style="display:inline-block;width:fit-content;padding:6px 16px;'
+                        f'border-radius:20px;background:{CLASS_COLORS.get(cls, "#333")};color:#fff;'
+                        f'font-size:18px;font-weight:700;margin:12px 0 4px">'
+                        f'⚠ {cls} · {len(group_items)}건</p>',
+                        unsafe_allow_html=True,
+                    )
+                    for it in group_items:
+                        if shown >= SHOWN_CAP:
+                            break
+                        c1, c2 = st.columns([0.3, 2])
+                        c1.markdown('<span class="rt-blink-dot" style="display:inline-block;width:12px;height:12px;'
+                                    f'border-radius:50%;background:{STATUS_COLORS["auto_reject"]["bg"]};'
+                                    'margin-top:5px;"></span>', unsafe_allow_html=True)
+                        c2.markdown(
+                            f"<span class='rt-blink-dot' style='font-size:19px;font-weight:700;"
+                            f"color:{STATUS_COLORS['auto_reject']['bg']}'>{it['image_id']} · "
+                            f"{it['calibrated_prob']:.2f}</span>", unsafe_allow_html=True,
+                        )
+                        shown += 1
+                    if shown >= SHOWN_CAP:
+                        break
+                remaining = len(urgent_items) - shown
+                if remaining > 0:
+                    st.caption(f"외 {remaining}건 더")
+
+                st.markdown('<div style="height:22px"></div>', unsafe_allow_html=True)  # 버튼을 조금 더 아래로
+                if is_configured():
+                    with st.popover("🚨 담당자에게 긴급 메일 전송", width="stretch"):
+                        to = st.text_input("받는 사람 (쉼표로 여러 명 가능)", value=default_recipient(),
+                                            key="urgent_mail_to")
+                        if st.button("전송", key="urgent_mail_send", type="primary"):
+                            lines = "\n".join(
+                                f"- {it['image_id']} · {it['dominant_class']} · 확률 {it['calibrated_prob']:.2f} "
+                                f"(severity_score {it['severity_score']:.2f})"
+                                for it in urgent_items
+                            )
+                            body = (
+                                f"오늘의 현황 — 긴급(위험도 상위) 항목 {len(urgent_items)}건\n\n"
+                                f"{lines}\n\n"
+                                f"기준: severity_score ≥ {SEVERITY_URGENT} (결함별 가중치 × AI 확률)\n"
+                                f"대시보드의 '🔎 위험도순 확인' 패널에서 상세 검토 바랍니다."
+                            )
+                            try:
+                                send_email(f"[긴급] RT 검사 위험도 상위 {len(urgent_items)}건 확인 요청", body, to)
+                                st.success(f"{to} 로 긴급 메일을 전송했습니다.")
+                            except Exception as e:
+                                st.error(f"전송 실패: {e}")
+                else:
+                    st.caption("메일 전송을 쓰려면 `.streamlit/secrets.toml`에 SMTP 설정이 필요합니다.")
 
     # 발행된 NCR(부적합보고서) — '⛔ 최종 불량 확정' 시 자동 생성되어 세션에 쌓인다.
     # 고정 높이 패널(PANEL_H) 안에 넣으면 비좁아지므로 expander로 별도 배치.
@@ -610,7 +710,7 @@ def render():
             # 제목은 다른 칸들과 통일되게 왼쪽 위 그대로 두고, 빈 공간은 아래 차트를
             # 키우는 쪽으로 처리한다(제목 위에 여백을 넣으면 칸마다 제목 위치가 달라짐).
             sh1, sh2 = st.columns([1.6, 1])
-            sh1.markdown('<p style="font-size:18px;font-weight:600;margin:0">📊 SPC 관리도</p>', unsafe_allow_html=True)
+            sh1.markdown('<p style="font-size:25px;font-weight:600;margin:0 0 8px">📊 SPC 관리도</p>', unsafe_allow_html=True)
             with sh2:
                 bb1, bb2 = st.columns(2)
                 if bb1.button("균열계열 시연", key="demo_crack", width="stretch"):
@@ -636,12 +736,12 @@ def render():
                 # 위아래로 균형 있게(중앙에 가깝게) 오도록 위쪽 여백을 계산한다.
                 fish_h_match = re.search(r'height="([0-9.]+)"', fishbone_html)
                 fish_h = float(fish_h_match.group(1)) if fish_h_match else 500.0
-                fish_top_gap = max(8, (PANEL2_H - 32 - 29 - fish_h) / 2)
-                st.markdown(f'<p style="font-size:18px;font-weight:600;margin:0">🔧 {label}</p>', unsafe_allow_html=True)
+                fish_top_gap = max(8, (PANEL2_H - 32 - 39 - fish_h) / 2)
+                st.markdown(f'<p style="font-size:25px;font-weight:600;margin:0 0 8px">🔧 {label}</p>', unsafe_allow_html=True)
                 st.markdown(f'<div style="height:{fish_top_gap}px"></div>', unsafe_allow_html=True)
                 st.markdown(fishbone_html, unsafe_allow_html=True)
             else:
-                st.markdown('<p style="font-size:18px;font-weight:600;margin:0">🔧 특성요인도</p>', unsafe_allow_html=True)
+                st.markdown('<p style="font-size:25px;font-weight:600;margin:0 0 8px">🔧 특성요인도</p>', unsafe_allow_html=True)
                 st.markdown(
                     f'<div style="height:{PANEL2_H - 80}px;display:flex;flex-direction:column;'
                     'align-items:center;justify-content:center;text-align:center;gap:10px">'
