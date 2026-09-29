@@ -125,7 +125,7 @@ def _mini_donut():
     colors = [STATUS_COLORS[r["status"]]["bg"] for r in ROUTING_SUMMARY]
     fig = go.Figure(go.Pie(labels=labels, values=values, marker_colors=colors, hole=0.55,
                             textinfo="percent", textfont=dict(size=16)))
-    fig.update_layout(height=420, margin=dict(l=0, r=0, t=10, b=10), showlegend=False, font=CHART_FONT,
+    fig.update_layout(height=430, margin=dict(l=0, r=0, t=10, b=10), showlegend=False, font=CHART_FONT,
                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
     return fig
 
@@ -471,37 +471,41 @@ def render():
                 band_width = _pct(band_high) - band_left
                 marker_left = _pct(brightness)
 
-                # 위젯이 없는 순수 HTML이라 하나의 div로 감싸 세로 중앙정렬.
-                # 게이지 막대·숫자 자체를 키워서 칸이 커진 만큼 내용도 같이 커지게 한다
-                # (여백만 넓히면 그대로 비어 보이므로, 실제 그림 요소 크기를 늘리는 쪽).
+                # 위젯이 없는 순수 HTML이라 하나의 div로 감싼다. 위에서부터 순서대로 쌓이게
+                # (flex-start) 하고, 항목마다 아래 여백을 다르게 줘서(균일한 gap 대신) 자연스러운
+                # 리듬을 만든다 — 배지는 바로 위 숫자와 붙여서, 담당자 알림의 "균열(D1)" 배지와
+                # 윗줄이 맞도록 한다. 배지 자체의 padding·둥근 정도·굵기도 그 배지와 정확히 맞춘다
+                # (색은 상태색 그대로 유지).
                 st.markdown(
                     f'<div style="height:{PANEL_H - 80}px;display:flex;flex-direction:column;'
-                    'justify-content:center;gap:14px">'
-                    f'<p style="font-size:38px;font-weight:800;margin:0">{brightness:.0f}</p>'
-                    f'<span style="display:inline-block;padding:4px 14px;border-radius:14px;'
-                    f'background:{status_color};color:#fff;font-size:17px;font-weight:600;'
-                    f'width:fit-content">{status_label}</span>'
-                    f'<p style="font-size:16px;color:var(--text-muted);margin:4px 0 0">'
+                    'justify-content:flex-start">'
+                    f'<p style="font-size:58px;font-weight:800;line-height:1;'
+                    f'margin:0 0 34px">{brightness:.0f}</p>'
+                    f'<span style="display:inline-block;width:fit-content;padding:6px 16px;'
+                    f'border-radius:20px;background:{status_color};color:#fff;font-size:18px;'
+                    f'font-weight:700;margin:0 0 14px">{status_label}</span>'
+                    f'<p style="font-size:17px;color:var(--text-muted);margin:0 0 14px">'
                     f'기준 {BASELINE_BRIGHTNESS} 대비 {arrow}{abs(diff_pct):.0f}% '
                     f'(samples/ 폴더 실측 평균 · ±10% 이내 정상)</p>'
 
-                    f'<div style="position:relative;height:96px;background:#eef0f2;'
-                    f'border-radius:16px;margin:26px 0 10px">'
+                    f'<div style="position:relative;height:8px;background:#cfd3d8;'
+                    f'border-radius:4px;margin:16px 0 16px">'
                     f'<div style="position:absolute;left:{band_left:.1f}%;width:{band_width:.1f}%;'
-                    f'height:100%;background:#d7f2d1;border-radius:16px"></div>'
-                    f'<div style="position:absolute;left:{marker_left:.1f}%;top:-10px;width:8px;'
-                    f'height:116px;background:{status_color};border-radius:4px;'
-                    f'transform:translateX(-4px)"></div>'
+                    f'height:100%;background:#8fd88f;border-radius:4px"></div>'
+                    f'<div style="position:absolute;left:{marker_left:.1f}%;top:50%;width:22px;'
+                    f'height:22px;background:{status_color};border-radius:50%;'
+                    f'border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.25);'
+                    f'transform:translate(-50%,-50%)"></div>'
                     f'</div>'
-                    f'<div style="display:flex;justify-content:space-between;font-size:16px;'
-                    f'color:var(--text-muted);margin-bottom:16px">'
+                    f'<div style="display:flex;justify-content:space-between;font-size:17px;'
+                    f'color:var(--text-muted);margin:0 0 14px">'
                     f'<span>{scale_min:.0f}</span><span>기준 {BASELINE_BRIGHTNESS}</span>'
                     f'<span>{scale_max:.0f}</span></div>'
 
-                    f'<p style="font-size:16px;color:var(--text-secondary);margin:0 0 4px">'
+                    f'<p style="font-size:17px;color:var(--text-secondary);margin:0 0 10px">'
                     f'표본 {brightness_stats["n"]}장 · 범위 '
                     f'{brightness_stats["min"]:.0f}~{brightness_stats["max"]:.0f}</p>'
-                    '<p style="font-size:16px;color:var(--text-muted);margin:0">'
+                    '<p style="font-size:17px;color:var(--text-muted);margin:0">'
                     '촬영 조건(노출·필름 상태)이 학습 데이터와 달라지면 모델 정확도가 '
                     '떨어질 수 있어, 이 지표로 조기에 감지합니다.</p>'
                     '</div>',
@@ -613,7 +617,7 @@ def render():
                 st.markdown(
                     f'<div style="height:{PANEL_H - 100}px;display:flex;flex-direction:column;'
                     'align-items:center;justify-content:center;text-align:center;gap:10px">'
-                    '<p style="font-size:16px;color:var(--text-muted);margin:0">현재 긴급 항목 없음<br>'
+                    '<p style="font-size:17px;color:var(--text-muted);margin:0">현재 긴급 항목 없음<br>'
                     f'(severity_score ≥ {SEVERITY_URGENT} 기준)</p></div>',
                     unsafe_allow_html=True,
                 )
@@ -648,7 +652,7 @@ def render():
                                         f'background:{STATUS_COLORS["auto_reject"]["bg"]};'
                                         'margin-top:5px;"></span>', unsafe_allow_html=True)
                             c2.markdown(
-                                f"<span class='rt-blink-dot' style='font-size:19px;font-weight:700;"
+                                f"<span class='rt-blink-dot' style='font-size:17px;font-weight:700;"
                                 f"color:{STATUS_COLORS['auto_reject']['bg']}'>{it['image_id']} · "
                                 f"{it['calibrated_prob']:.2f}</span>", unsafe_allow_html=True,
                             )
@@ -722,7 +726,8 @@ def render():
             if demo_type is not None:
                 st.warning("⚠ 관리한계 이탈 감지 (시연) — 오늘 불량률이 UCL을 초과했습니다.")
             else:
-                st.caption("더미 데이터 — 실제 운영 로그 연동 전 레이아웃 확인용")
+                st.markdown('<p style="font-size:17px;color:var(--text-muted);margin:0">'
+                            '더미 데이터 — 실제 운영 로그 연동 전 레이아웃 확인용</p>', unsafe_allow_html=True)
 
     with col_fish:
         with st.container(height=PANEL2_H, border=True):
@@ -739,6 +744,6 @@ def render():
                 st.markdown(
                     f'<div style="height:{PANEL2_H - 80}px;display:flex;flex-direction:column;'
                     'align-items:center;justify-content:center;text-align:center;gap:10px">'
-                    '<p style="font-size:16px;color:var(--text-muted);margin:0">현재 이상 신호 없음</p></div>',
+                    '<p style="font-size:17px;color:var(--text-muted);margin:0">현재 이상 신호 없음</p></div>',
                     unsafe_allow_html=True,
                 )
