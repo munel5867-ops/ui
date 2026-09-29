@@ -206,11 +206,22 @@ def render():
                 if ctrl3.button(play_label, type="primary", width="stretch",
                                  disabled=len(batch) < 2, key="play_btn"):
                     st.session_state["demo_playing"] = not st.session_state["demo_playing"]
+                    # 이 버튼은 fragment 안에 있어서, 그냥 두면 fragment만 다시 그려지고
+                    # run_every=interval을 정하는 바깥 render() 전체는 재실행되지 않는다.
+                    # 그러면 방금 바꾼 demo_playing 값이 실제 자동재생 타이머(interval)에
+                    # 반영되지 않아 재생 버튼이 눌러도 안 도는 것처럼 보인다. st.rerun()으로
+                    # 전체 재실행을 강제해서 interval을 새로 계산하게 한다.
+                    st.rerun()
+                _prev_speed = st.session_state["demo_speed"]
                 st.session_state["demo_speed"] = ctrl4.slider(
                     "속도(초)", min_value=1.0, max_value=10.0,
                     value=st.session_state["demo_speed"], step=0.5,
                     format="%.1f초", label_visibility="collapsed", key="speed_slider",
                 )
+                if st.session_state["demo_playing"] and st.session_state["demo_speed"] != _prev_speed:
+                    # 재생 버튼과 같은 이유 — 재생 중에 속도를 바꿔도 fragment만 다시 그려지면
+                    # 이미 돌고 있는 run_every 타이머 간격은 안 바뀐다. 전체 재실행으로 반영한다.
+                    st.rerun()
 
                 status_txt = "자동재생 중" if st.session_state["demo_playing"] else "일시정지"
                 current_name, image_bytes = batch[st.session_state["demo_idx"]]
