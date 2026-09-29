@@ -1,5 +1,3 @@
-import re
-
 import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image
@@ -308,11 +306,15 @@ def _fishbone(kind):
         svg_parts.append(_fishbone_category_svg(
             xs[i], False, bottom_header_y0, FISHBONE_COLORS[i], name, wrapped_bottom[i], spine_y0, font))
 
+    # 고정 px(가로 스크롤 방식) 대신 칸 폭에 맞춰 줄어드는 반응형으로 그린다 — 이 대시보드의
+    # 다른 차트들(SPC 관리도, 도넛 등)도 전부 width="stretch"로 칸에 맞춰 반응형이라 그것과
+    # 방식을 맞춘 것이다. viewBox 비율은 유지한 채 표시 크기만 칸 폭에 맞게 자동으로 줄어든다.
     svg = (
-        f'<svg viewBox="0 0 {total_w} {total_h}" width="{total_w}" height="{total_h}" '
+        f'<svg viewBox="0 0 {total_w} {total_h}" width="100%" height="auto" '
+        f'preserveAspectRatio="xMidYMid meet" '
         f'xmlns="http://www.w3.org/2000/svg">' + "".join(svg_parts) + "</svg>"
     )
-    return f'<div style="overflow-x:auto">{svg}</div>'
+    return svg
 
 
 def _prob_bar_chart(probs):
@@ -562,7 +564,7 @@ def render():
                 thresholds=thresholds,
             )
             r1, r2 = st.columns(2)
-            r1.download_button("📄 보고서", data=docx_bytes, file_name=docx_name,
+            r1.download_button("📄 보고서", data=docx_bytes, file_name=docx_name, key="report_download_btn",
                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                 width="stretch")
             with r2:
@@ -621,44 +623,39 @@ def render():
                     f'<b>긴급 {len(urgent_items)}건</b> — 담당자 확인이 필요합니다.</div>',
                     unsafe_allow_html=True,
                 )
-                # 한 줄로 쭉 나열하지 않고 결함 유형별로 묶어서 보여준다 — 유형이 여러 개일 때
-                # 자연스럽게 공간을 더 쓰게 되고, 어떤 유형이 몇 건인지도 바로 보인다.
-                groups = {}
-                for it in urgent_items:
-                    groups.setdefault(it["dominant_class"], []).append(it)
+                # 목록만 따로 스크롤되게 안쪽에 고정 높이 컨테이너를 두고, 버튼은 그 바깥(아래)에
+                # 둬서 항목이 몇 건이든 스크롤 없이 항상 보이게 한다. border=False를 명시해야
+                # 한다 — 고정 높이 컨테이너는 기본값(None)일 때 테두리가 자동으로 그려진다.
+                with st.container(height=420, border=False):
+                    # 한 줄로 쭉 나열하지 않고 결함 유형별로 묶어서 보여준다 — 유형이 여러 개일
+                    # 때 자연스럽게 공간을 더 쓰게 되고, 어떤 유형이 몇 건인지도 바로 보인다.
+                    groups = {}
+                    for it in urgent_items:
+                        groups.setdefault(it["dominant_class"], []).append(it)
 
-                SHOWN_CAP = 8
-                shown = 0
-                for cls, group_items in groups.items():
-                    st.markdown(
-                        f'<p style="display:inline-block;width:fit-content;padding:6px 16px;'
-                        f'border-radius:20px;background:{CLASS_COLORS.get(cls, "#333")};color:#fff;'
-                        f'font-size:18px;font-weight:700;margin:12px 0 4px">'
-                        f'⚠ {cls} · {len(group_items)}건</p>',
-                        unsafe_allow_html=True,
-                    )
-                    for it in group_items:
-                        if shown >= SHOWN_CAP:
-                            break
-                        c1, c2 = st.columns([0.3, 2])
-                        c1.markdown('<span class="rt-blink-dot" style="display:inline-block;width:12px;height:12px;'
-                                    f'border-radius:50%;background:{STATUS_COLORS["auto_reject"]["bg"]};'
-                                    'margin-top:5px;"></span>', unsafe_allow_html=True)
-                        c2.markdown(
-                            f"<span class='rt-blink-dot' style='font-size:19px;font-weight:700;"
-                            f"color:{STATUS_COLORS['auto_reject']['bg']}'>{it['image_id']} · "
-                            f"{it['calibrated_prob']:.2f}</span>", unsafe_allow_html=True,
+                    for cls, group_items in groups.items():
+                        st.markdown(
+                            f'<p style="display:inline-block;width:fit-content;padding:6px 16px;'
+                            f'border-radius:20px;background:{CLASS_COLORS.get(cls, "#333")};color:#fff;'
+                            f'font-size:18px;font-weight:700;margin:14px 0 14px">'
+                            f'⚠ {cls} · {len(group_items)}건</p>',
+                            unsafe_allow_html=True,
                         )
-                        shown += 1
-                    if shown >= SHOWN_CAP:
-                        break
-                remaining = len(urgent_items) - shown
-                if remaining > 0:
-                    st.caption(f"외 {remaining}건 더")
+                        for it in group_items:
+                            c1, c2 = st.columns([0.3, 2])
+                            c1.markdown('<span class="rt-blink-dot" style="display:inline-block;'
+                                        'width:12px;height:12px;border-radius:50%;'
+                                        f'background:{STATUS_COLORS["auto_reject"]["bg"]};'
+                                        'margin-top:5px;"></span>', unsafe_allow_html=True)
+                            c2.markdown(
+                                f"<span class='rt-blink-dot' style='font-size:19px;font-weight:700;"
+                                f"color:{STATUS_COLORS['auto_reject']['bg']}'>{it['image_id']} · "
+                                f"{it['calibrated_prob']:.2f}</span>", unsafe_allow_html=True,
+                            )
 
-                st.markdown('<div style="height:22px"></div>', unsafe_allow_html=True)  # 버튼을 조금 더 아래로
                 if is_configured():
-                    with st.popover("🚨 담당자에게 긴급 메일 전송", width="stretch"):
+                    with st.popover("🚨 담당자에게 긴급 메일 전송", width="stretch",
+                                    key="urgent_mail_popover"):
                         to = st.text_input("받는 사람 (쉼표로 여러 명 가능)", value=default_recipient(),
                                             key="urgent_mail_to")
                         if st.button("전송", key="urgent_mail_send", type="primary"):
@@ -732,13 +729,10 @@ def render():
             if demo_type is not None:
                 label = "균열·용입불량 원인분석" if demo_type == "crack" else "기공 원인분석"
                 fishbone_html = _fishbone(demo_type)
-                # 실제로 그려질 높이를 SVG에서 그대로 읽어서, 제목 포함 전체가 박스 안에서
-                # 위아래로 균형 있게(중앙에 가깝게) 오도록 위쪽 여백을 계산한다.
-                fish_h_match = re.search(r'height="([0-9.]+)"', fishbone_html)
-                fish_h = float(fish_h_match.group(1)) if fish_h_match else 500.0
-                fish_top_gap = max(8, (PANEL2_H - 32 - 39 - fish_h) / 2)
                 st.markdown(f'<p style="font-size:25px;font-weight:600;margin:0 0 8px">🔧 {label}</p>', unsafe_allow_html=True)
-                st.markdown(f'<div style="height:{fish_top_gap}px"></div>', unsafe_allow_html=True)
+                # 반응형(칸 폭에 맞춰 자동으로 줄어듦)이라 실제 렌더 높이를 미리 알 수 없어,
+                # 계산된 여백 대신 고정 여백으로 둔다.
+                st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
                 st.markdown(fishbone_html, unsafe_allow_html=True)
             else:
                 st.markdown('<p style="font-size:25px;font-weight:600;margin:0 0 8px">🔧 특성요인도</p>', unsafe_allow_html=True)

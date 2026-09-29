@@ -186,6 +186,25 @@ def inject_css():
     .rt-blink-dot {
         animation: rt-pulse 1s ease-in-out infinite;
     }
+    /* "담당자에게 긴급 메일 전송" 팝오버 버튼 — key="urgent_mail_popover"로 지정한 위젯만
+       콕 집어 스타일을 건다. st.popover(key=...)는 위젯 바깥을 "st-key-<key>" 클래스로
+       감싸주므로, 이 클래스 아래 button만 선택하면 다른 버튼에는 영향이 없다.
+       calc(1em + 2px)는 지금 렌더링되는 글자 크기에서 정확히 2px만 키운다는 뜻이다. */
+    .st-key-urgent_mail_popover button {
+        font-size: calc(1em + 2px) !important;
+        margin-top: 17px !important;
+    }
+    /* "보고서"·"메일로 전송"·"검토하기"·"시연" 버튼들도 같은 방식(현재 크기에서 +2px)으로
+       맞춘다. "검토하기"는 항목마다 key=f"select_{image_id}"라 값이 다 달라서, 접두어가
+       같은 클래스를 [class*="..."]로 한꺼번에 잡는다. */
+    .st-key-report_download_btn button,
+    .st-key-today_status_toggle button,
+    .st-key-weekly_tab4_toggle button,
+    [class*="st-key-select_"] button,
+    .st-key-demo_crack button,
+    .st-key-demo_porosity button {
+        font-size: calc(1em + 2px) !important;
+    }
 
     /* ------------------------------------------------------------------
        탭②③④⑤⑥ 최저 글자 크기 보장 — 지금까지 커스텀 크기를 지정한 적이

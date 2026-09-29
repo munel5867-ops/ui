@@ -1,6 +1,8 @@
 import pandas as pd
 import streamlit as st
 
+from utils.style import BRAND_NAVY
+
 LIMITS = pd.DataFrame({
     "한계": ["D4 유형 신뢰도", "특이도 목표 미달", "라우팅 측정 조건", "필름 다양성 부족", "테스트셋 미개봉", "외부 데이터 미검증"],
     "내용": [
@@ -95,6 +97,42 @@ def _risk_style(v):
     return m.get(v, "")
 
 
+# st.dataframe은 셀 글자를 별도 렌더링 엔진(그리드 컴포넌트)으로 그려서, 브라우저 확대(Zoom)
+# 시 칸 너비에 안 맞는 글자가 줄바꿈되지 않고 그대로 잘려서 보이는 문제가 있다(이 값으로는
+# 고칠 수 없음 — 조원 인계 문서에도 이미 기록돼 있던 한계). 순수 HTML 표는 셀이 기본적으로
+# 줄바꿈되므로, 이 탭의 표 네 개를 전부 HTML로 바꿔서 어떤 확대 배율에서도 잘리지 않게 한다.
+def _html_table(df, col_widths=None, risk_col=None):
+    cols = list(df.columns)
+    widths = col_widths or [None] * len(cols)
+    head_style = (f'padding:10px 12px;background:{BRAND_NAVY};color:#fff;font-size:16px;'
+                  'font-weight:700;text-align:left;white-space:normal')
+    cell_style = 'padding:10px 12px;font-size:16px;line-height:1.5;vertical-align:top;white-space:normal'
+
+    head_cells = "".join(
+        f'<th style="{head_style}{f";width:{w}" if w else ""}">{c}</th>' for c, w in zip(cols, widths)
+    )
+    body_rows = []
+    for i, row in enumerate(df.itertuples(index=False)):
+        bg = "#f5f6f8" if i % 2 == 1 else "#ffffff"
+        cells = []
+        for c, v in zip(cols, row):
+            if c == risk_col:
+                pill_style = _risk_style(v)
+                cells.append(
+                    f'<td style="{cell_style}"><span style="display:inline-block;padding:3px 12px;'
+                    f'border-radius:12px;font-weight:700;{pill_style}">{v}</span></td>'
+                )
+            else:
+                cells.append(f'<td style="{cell_style}">{v}</td>')
+        body_rows.append(f'<tr style="background:{bg}">' + "".join(cells) + '</tr>')
+
+    return (
+        '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;'
+        'border:1px solid #e1e4e8">'
+        f'<tr>{head_cells}</tr>' + "".join(body_rows) + '</table></div>'
+    )
+
+
 def render():
     st.info(
         "📋 이 화면은 감사·인증 심사 대응용 소명 자료이자, 대시보드에서 알림이 떴을 때 참고하는 "
@@ -108,23 +146,21 @@ def render():
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("현재 시스템의 한계")
-        st.dataframe(
-            LIMITS.style.map(_risk_style, subset=["위험도"]),
-            width="stretch", hide_index=True, height=320,
-        )
+        st.markdown(_html_table(LIMITS, col_widths=["18%", "62%", "20%"], risk_col="위험도"),
+                    unsafe_allow_html=True)
     with col2:
         st.subheader("운영 전환 체크리스트")
-        st.dataframe(ACTIONS, width="stretch", hide_index=True, height=320)
+        st.markdown(_html_table(ACTIONS, col_widths=["8%", "72%", "20%"]), unsafe_allow_html=True)
 
     st.divider()
     st.subheader("🚨 알림별 대응 가이드")
     st.caption("대시보드에서 이런 알림·신호를 보면, 이렇게 확인하고 조치하세요.")
-    st.dataframe(ALERT_GUIDE, width="stretch", hide_index=True, height=360)
+    st.markdown(_html_table(ALERT_GUIDE), unsafe_allow_html=True)
 
     st.divider()
     st.subheader("📧 메일 전송 버튼 안내")
     st.caption("위험도순 확인과 담당자 알림, 두 곳에 메일 버튼이 있어 헷갈릴 수 있어 정리했습니다.")
-    st.dataframe(MAIL_GUIDE, width="stretch", hide_index=True, height=140)
+    st.markdown(_html_table(MAIL_GUIDE), unsafe_allow_html=True)
 
     st.divider()
     st.subheader("☀ 입력 밝기 드리프트란?")
