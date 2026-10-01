@@ -19,7 +19,7 @@ HEADER_H = 142
 STATUS_COLORS = {
     "auto_pass": {"bg": "#0ca30c", "icon": "✅", "label": "자동 통과"},
     "attention": {"bg": "#fab219", "icon": "⚠", "label": "사람 확인 필요"},
-    "attention_crack": {"bg": "#ec835a", "icon": "⚠", "label": "사람 확인 필요 · 균열계열 의심"},
+    "attention_crack": {"bg": "#ec835a", "icon": "⚠", "label": "사람 확인 필요 · 균열·용입불량 의심"},
     "attention_margin": {"bg": "#eda100", "icon": "⚠", "label": "사람 확인 필요 · 균열/용입불량 경계 모호"},
     "auto_reject": {"bg": "#d03b3b", "icon": "⛔", "label": "자동 배출"},
 }

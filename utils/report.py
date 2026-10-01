@@ -19,6 +19,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt, RGBColor
 
 from utils.ncr_report import _apply_korean, _bold_line, _cell, _shade_cell, build_ncr_docx
+from utils.routing import DEFAULT_THRESHOLDS
 
 NAVY_HEX = "184F95"          # NCR 양식과 같은 남색
 STRIPE_HEX = "F2F4F7"        # 짝수 행 옅은 회색 줄무늬
@@ -29,7 +30,7 @@ STATUS_LABELS = {
     "auto_pass": "자동 통과",
     "auto_reject": "자동 배출",
     "attention": "사람 확인 필요",
-    "attention_crack": "사람 확인 필요 · 균열계열 의심",
+    "attention_crack": "사람 확인 필요 · 균열·용입불량 의심",
     "attention_margin": "사람 확인 필요 · 균열/용입불량 경계 모호",
 }
 
@@ -181,8 +182,8 @@ def today_status_report_bytes(routing_summary, core_kpis, open_items, approved_n
     _cell(th_cells[0], "적용 임계값", bold=True)
     _cell(
         th_val,
-        f"무결함 확신 ≥ {thresholds['nd_confident']:.2f}   ·   주의 기준 ≥ {thresholds['attention_t']:.2f}   ·   "
-        f"확정 기준 ≥ {thresholds['confident_t']:.2f}   ·   margin ≥ {thresholds['margin_threshold']:.0f}",
+        f"균열·용입불량 점수 ≥ {thresholds.get('crack_t', DEFAULT_THRESHOLDS['crack_t']):.4f}   ·   "
+        f"margin ≥ {thresholds.get('margin_threshold', DEFAULT_THRESHOLDS['margin_threshold']):.0f}",
     )
     for r in range(2):
         for c in (0, 2):

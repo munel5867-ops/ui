@@ -5,24 +5,32 @@ STAGE3에서 백본 마지막 20층을 미세조정+증강 학습한 EfficientNe
 2026-09-19 갱신 — 배포 가중치를 백본 동결(filmopt) 모델에서 미세조정+증강 모델로
 교체했다. 파일명에 "finetune"이 붙은 것으로 구분한다 — filmopt(백본 동결)와 혼동하지 말 것.
 
-[팀 결정 반영 — 균열(D1)/용입불량(D4) 개별 유지 + margin 라우팅]
-routing.py가 D1+D4 통합(CrackOrLoP) 방식에서, D1/D4를 개별 확률로 유지하고
-margin_threshold=90(확신도 격차 기준)일 때만 세부유형을 확정하는 방식으로 바뀌었다.
-이에 맞춰 predict_ensemble()도 D1+D4를 합산하지 않고 개별 확률 그대로 반환한다.
+[팀 결정 반영 — 균열·용입불량 1차 선별(보고서 방안 2) + margin 98, 검증 정확도 95.14%(운영 기준 약 93.3%)]
+routing.py는 균열·용입불량 점수(crack_score)로 1차 선별한 뒤, margin_threshold=98(확신도
+격차 기준)일 때만 균열(D1)/용입불량(D4) 유형을 확정한다. 이에 맞춰 predict_ensemble()은
+D1/D4 개별 확률(margin 계산용)을 그대로 반환하고, 균열·용입불량 점수 판정용으로 3클래스 보정
+확률 3개(crack_score, p3_D2, p3_ND)를 같은 딕셔너리에 추가로 담아 돌려준다.
 
 [확률 보정 — Isotonic + Saerens]
-STAGE3 margin 검증(margin>=90 → 정확도 99.5%)은 Isotonic 보정 + 사전확률(Saerens)
+STAGE3 margin 검증(margin>=98 → 검증 정확도 95.14%)은 Isotonic 보정 + 사전확률(Saerens)
 재조정을 거친 확률 기준으로 나온 결과다. models/calibration_bundle_finetune.pkl
 파일이 있으면 이 보정을 적용하고, 없으면 원본(미보정) 확률을 쓰며 화면에 경고를
-띄운다 — 미보정 상태에서는 margin_threshold=90이 검증된 정확도를 보장하지 못한다.
+띄운다 — 미보정 상태에서는 margin_threshold=98이 검증된 정확도를 보장하지 못한다.
+
+[3클래스 보정 — 균열·용입불량 점수용]
+균열·용입불량 점수는 D1+D4 원본 확률 합을 (균열·용입불량 / 기공 / 양품) 3클래스로
+Isotonic 보정 + 사전확률 재조정한 값이다. models/calibration_bundle_3class_finetune.pkl
+(노트북 RIAWELC_전체검증.ipynb 마지막 셀이 저장하는 이름. 이전 문서의 ..._3cls_... 이름도 인식)이
+있으면 이 보정을 적용해 crack_score·p3_D2·p3_ND를 만들고, 없으면 키를 만들지 않아
+routing.py가 D1+D4 합 근사값으로 대신 계산한다(보고서 기준과 다름 — 화면에 경고 표시).
 
 Colab 학습/검증 스크립트에서 쓰던 build_model() / make_gradcam_heatmap() 코드를
 그대로 옮겨왔다. 모델 구조나 전처리 방식이 학습 때와 1픽셀이라도 다르면 예측이
 어긋나므로, 임의로 바꾸지 말 것.
 
 가중치 파일 5개(`efficientnetb0_finetune_fold0~4_last.weights.h5`, 각 ~27.7MB)와
-보정 파일(`calibration_bundle_finetune.pkl`)은 용량 문제로 Claude가 대신 받아줄 수
-없다 — 구글드라이브에서 직접 내려받아 이 프로젝트의 models/ 폴더에 넣어야 한다.
+보정 파일(`calibration_bundle_finetune.pkl`, `calibration_bundle_3class_finetune.pkl`)은
+용량 문제로 Claude가 대신 받아줄 수 없다 — 구글드라이브에서 직접 내려받아 이 프로젝트의 models/ 폴더에 넣어야 한다.
 """
 import os
 import pickle
@@ -39,6 +47,11 @@ N_FOLDS = 5
 WEIGHTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
 WEIGHTS_TEMPLATE = "efficientnetb0_finetune_fold{fold}_last.weights.h5"
 CALIBRATION_PATH = os.path.join(WEIGHTS_DIR, "calibration_bundle_finetune.pkl")
+# 3클래스 보정 파일 — 노트북 마지막 셀이 저장하는 이름을 먼저, 이전 문서(Colab 셀)의 이름을 다음으로 찾는다.
+CALIBRATION_3CLS_PATHS = [
+    os.path.join(WEIGHTS_DIR, "calibration_bundle_3class_finetune.pkl"),
+    os.path.join(WEIGHTS_DIR, "calibration_bundle_3cls_finetune.pkl"),
+]
 
 # 학습 시 sorted(os.listdir(train_dir))로 정해진 실제 클래스 순서.
 # 모델 출력(softmax) 벡터의 인덱스 순서가 이 순서와 정확히 일치해야 함 — 절대 바꾸지 말 것.
@@ -103,6 +116,39 @@ def load_calibration():
         return pickle.load(f)
 
 
+@st.cache_resource(show_spinner="3클래스 보정기 불러오는 중...")
+def load_calibration_3cls():
+    """models/ 폴더의 3클래스 보정 파일을 불러온다. 없으면 None 반환 —
+    이 경우 predict_ensemble()은 crack_score 등 3클래스 키를 만들지 않는다."""
+    for path in CALIBRATION_3CLS_PATHS:
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                return pickle.load(f)
+    return None
+
+
+def _apply_calibration_3cls(raw_avg_preds, bundle: dict) -> np.ndarray:
+    """raw_avg_preds: CLASS_NAMES 순서의 4클래스 확률 (앙상블 평균 직후, 4클래스 보정 전).
+    D1+D4 합 / D2 / ND 3클래스로 묶어 Isotonic 보정 -> 사전확률 재조정을 적용한다.
+    반환: [균열·용입불량(CrackOrLoP), 기공(Porosity), 양품(NoDefect)] 순서의 확률.
+    파일 형식 두 가지를 모두 읽는다:
+      · 노트북 마지막 셀 형식 — iso_models(목록), train_prior_3c, target_prior_3c
+      · 이전 문서 Colab 셀 형식 — isotonic_models(이름으로 찾는 사전), class_names, train_prior, target_prior"""
+    raw = dict(zip(CLASS_NAMES, raw_avg_preds))
+    p = np.array([raw["Difetto1"] + raw["Difetto4"], raw["Difetto2"], raw["NoDifetto"]])
+    if "iso_models" in bundle:
+        isos = list(bundle["iso_models"])
+        train_prior = np.asarray(bundle["train_prior_3c"], dtype=float)
+        target_prior = np.asarray(bundle["target_prior_3c"], dtype=float)
+    else:
+        isos = [bundle["isotonic_models"][c] for c in bundle["class_names"]]
+        train_prior = np.asarray(bundle["train_prior"], dtype=float)
+        target_prior = np.asarray(bundle["target_prior"], dtype=float)
+    cal = np.array([iso.transform([p[k]])[0] for k, iso in enumerate(isos)])
+    adj = cal * (target_prior / train_prior)
+    return adj / (adj.sum() + 1e-12)
+
+
 def _apply_calibration(raw_avg_preds: np.ndarray, bundle: dict) -> np.ndarray:
     """raw_avg_preds: CLASS_NAMES 순서의 4클래스 확률 (앙상블 평균 직후, 보정 전).
     Isotonic 보정 -> Saerens 사전확률 재조정까지 적용한 확률을 같은 순서로 반환."""
@@ -137,8 +183,10 @@ def _preprocess(pil_image: Image.Image):
 
 def predict_ensemble(pil_image: Image.Image):
     """5-fold 모델의 softmax 확률을 평균 앙상블한 뒤, 보정기가 있으면 Isotonic+Saerens
-    보정을 적용한다. D1/D4를 합치지 않고 개별 확률 그대로 반환한다.
-    반환: probs 딕셔너리 (무결함/균열(D1)/기공(D2)/용입불량(D4)) 또는 가중치가 없으면 None."""
+    보정을 적용한다. D1/D4를 합치지 않고 개별 확률 그대로 반환한다(margin 계산용).
+    3클래스 보정기가 있으면 균열·용입불량 점수 판정용 키 3개(crack_score/p3_D2/p3_ND)를 추가한다.
+    반환: probs 딕셔너리 (무결함/균열(D1)/기공(D2)/용입불량(D4) + 선택적 3클래스 키)
+    또는 가중치가 없으면 None."""
     models, missing = load_fold_models()
     if not models:
         return None
@@ -146,13 +194,14 @@ def predict_ensemble(pil_image: Image.Image):
     _, batch = _preprocess(pil_image)
     all_preds = [m.predict(batch, verbose=0)[0] for m, _ in models]
     avg_preds = np.mean(all_preds, axis=0)
+    raw_avg = avg_preds.copy()  # 3클래스 보정은 4클래스 보정 전 원본 평균에서 시작한다
 
     bundle = load_calibration()
     if bundle is not None:
         avg_preds = _apply_calibration(avg_preds, bundle)
     else:
         st.warning("⚠ 보정기(calibration_bundle_finetune.pkl)가 없어 원본(미보정) 확률을 사용 중입니다. "
-                    "margin_threshold=90의 검증된 정확도가 보장되지 않습니다.")
+                    "margin_threshold=98의 검증된 정확도가 보장되지 않습니다.")
 
     raw = dict(zip(CLASS_NAMES, avg_preds))
     probs = {
@@ -161,6 +210,14 @@ def predict_ensemble(pil_image: Image.Image):
         "기공(D2)": float(raw["Difetto2"]),
         "용입불량(D4)": float(raw["Difetto4"]),
     }
+
+    bundle3 = load_calibration_3cls()
+    if bundle3 is not None:
+        c3 = _apply_calibration_3cls(raw_avg, bundle3)
+        probs.update({"crack_score": float(c3[0]), "p3_D2": float(c3[1]), "p3_ND": float(c3[2])})
+    else:
+        st.warning("⚠ 3클래스 보정기(calibration_bundle_3class_finetune.pkl)가 없어 균열·용입불량 점수를 "
+                    "D1+D4 합으로 대신 계산합니다 (보고서 기준과 다름).")
     return probs
 
 

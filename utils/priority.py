@@ -94,7 +94,7 @@ def score_real_samples(thresholds):
     rows = []
     for item in inferred:
         probs = item["probs"]
-        status, label = classify(probs["무결함"], probs["균열(D1)"], probs["용입불량(D4)"], thresholds)
+        status, label = classify(probs, thresholds)
         if status not in ATTENTION_STATUSES:
             continue
         dom_class, dom_prob = _dominant({
@@ -102,14 +102,19 @@ def score_real_samples(thresholds):
             "prob_용입불량(D4)": probs["용입불량(D4)"],
             "prob_기공(D2)": probs["기공(D2)"],
         })
-        rows.append({
+        row = {
             **item,
             "status": status,
             "ai_label": label,
             "dominant_class": dom_class,
             "calibrated_prob": dom_prob,
             "severity_score": CLASS_WEIGHT[dom_class] * dom_prob,
-        })
+        }
+        # 3클래스 보정 확률도 있으면 같이 저장한다 (데이터프레임 경로에서 다시 쓸 수 있게)
+        for k in ("crack_score", "p3_D2", "p3_ND"):
+            if k in probs:
+                row[k] = probs[k]
+        rows.append(row)
     rows.sort(key=lambda r: r["severity_score"], reverse=True)
     return rows
 

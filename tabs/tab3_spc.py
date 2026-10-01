@@ -14,7 +14,7 @@ from utils.priority import (
     score_real_samples,
 )
 from utils.report import today_status_report_bytes
-from utils.routing import DEFAULT_THRESHOLDS
+from utils.routing import CLASS_KEYS, DEFAULT_THRESHOLDS
 from utils.samples import image_for_id, load_samples
 from utils.style import BRAND_BLUE, BRAND_NAVY, CLASS_COLORS, STATUS_COLORS, status_badge
 
@@ -22,24 +22,25 @@ from utils.style import BRAND_BLUE, BRAND_NAVY, CLASS_COLORS, STATUS_COLORS, sta
 # Plotly는 브라우저 CSS를 안 따르고 SVG에 직접 폰트를 그리므로, 차트마다 이 값을 넣어줘야 함.
 CHART_FONT = dict(family="Pretendard, Malgun Gothic, sans-serif", size=16)
 
+# 보고서 STAGE4 1-1 기준 (전체 15,348건): 양품 3,892 / 기공 3,808 + 유형확정 2,526 / 확인 5,122
 ROUTING_SUMMARY = [
-    {"label": "자동통과", "n": 1194, "pct": 0.194, "status": "auto_pass"},
-    {"label": "자동배출(세부확정)", "n": 2100, "pct": 0.342, "status": "auto_reject"},
-    {"label": "사람확인", "n": 2846, "pct": 0.464, "status": "attention"},
+    {"label": "자동통과", "n": 3892, "pct": 0.254, "status": "auto_pass"},
+    {"label": "자동배출(세부확정)", "n": 6334, "pct": 0.413, "status": "auto_reject"},
+    {"label": "사람확인", "n": 5122, "pct": 0.334, "status": "attention"},
 ]
-CRACK_SUSPECT_N = 204
+CRACK_SUSPECT_N = 7648  # 통합보고서 STAGE4: 균열·용입불량 탐지 건수 (비용비 3:1)
 # 위험도순 목록 색상 문턱값 — build_priority_queue()/score_real_samples()가 이미 계산해주는
 # severity_score(결함별 가중치 × 확률, utils/priority.py CLASS_WEIGHT) 기준.
 # D1·D4는 가중치 2.0이라 확률 0.8 이상이면 1.6을 넘어 긴급으로 잡힌다.
 SEVERITY_URGENT = 1.6   # 빨강 + 깜빡임 — 담당자 메일 알림 대상
 SEVERITY_WARNING = 1.0  # 주황
 CORE_KPIS = [
-    ("자동화율", 0.341, "자동통과 + margin>=90 자동배출 기준 (TODO: 실측치로 교체)"),
-    ("D1(균열) 미검출", 0.0, "TODO: 실측치로 교체"),
-    ("D4(용입불량) 미검출", 0.012, "TODO: 실측치로 교체"),
+    ("자동화율", 0.666, "균열·용입불량 1차 선별 0.3781 + margin≥98 기준 (10,226건 / 15,348장)"),
+    ("D1(균열) 미검출", 13 / 4778, "통합보고서 STAGE4 · OOF 15,348장 · 비용비 3:1 (13건 / D1 4,778장)"),
+    ("D4(용입불량) 미검출", 207 / 2926, "통합보고서 STAGE4 · OOF 15,348장 · 비용비 3:1 (207건 / D4 2,926장)"),
 ]
 
-# 특성요인도 원인(6M 기준) — "균열계열"은 D1(균열)·D4(용입불량)를 통합해서 다룬다
+# 특성요인도 원인(6M 기준) — "균열·용입불량 묶음"은 D1(균열)·D4(용입불량)를 통합해서 다룬다
 # (routing.py의 설계 의도: 둘은 모델이 헷갈리기 쉬운 클래스라 사람에게 함께 넘긴다는
 # 원칙을 특성요인도에도 그대로 반영). "기공"은 D2 별도.
 # 값은 실제 용접공학 문헌(TWI, AWS 계열 기술문헌, ScienceDirect·arXiv 논문 등)에서
@@ -318,6 +319,7 @@ def _fishbone(kind):
 
 
 def _prob_bar_chart(probs):
+    probs = {k: probs[k] for k in CLASS_KEYS}  # 내부용 키(crack_score 등)는 그리지 않는다
     labels = list(probs.keys())
     values = list(probs.values())
     colors = [CLASS_COLORS.get(l, "#2a78d6") for l in labels]
@@ -394,9 +396,10 @@ def _render_review_panel(item, samples):
     st.plotly_chart(_prob_bar_chart(probs), width="stretch", config={"displayModeBar": False})
     badge_html = status_badge(status)
     if label:
-        badge_html += f' <span style="margin-left:8px;font-weight:700;">→ {label}</span>'
+        suffix = " 추정" if status == "attention_margin" else ""
+        badge_html += f' <span style="margin-left:8px;font-weight:700;">→ {label}{suffix}</span>'
     st.markdown(badge_html, unsafe_allow_html=True)
-    if not label:
+    if not label or status == "attention_margin":
         st.caption("AI가 세부유형(균열/용입불량)을 확신하지 못해 검사자가 직접 판단해야 합니다.")
 
     b1, b2 = st.columns(2)
@@ -702,7 +705,7 @@ def render():
     demo_type = st.session_state.get("spc_demo_type")  # None | "crack" | "porosity"
 
     # 특성요인도(6M)가 커지면서 실제로 필요한 높이가 늘어, 스크롤바가 안 생기게 다시 계산한 값
-    # (균열계열 다이어그램 실측 566px + 제목 30px + 정렬용 여백 40px + 컨테이너 패딩 약 40px + 여유 14px).
+    # (균열·용입불량 다이어그램 실측 566px + 제목 30px + 정렬용 여백 40px + 컨테이너 패딩 약 40px + 여유 14px).
     PANEL2_H = 690
     col_spc, col_fish = st.columns([1.3, 1])
 
@@ -714,7 +717,7 @@ def render():
             sh1.markdown('<p style="font-size:25px;font-weight:600;margin:0 0 8px">📊 SPC 관리도</p>', unsafe_allow_html=True)
             with sh2:
                 bb1, bb2 = st.columns(2)
-                if bb1.button("균열계열 시연", key="demo_crack", width="stretch"):
+                if bb1.button("균열·용입불량 시연", key="demo_crack", width="stretch"):
                     st.session_state["spc_demo_type"] = None if demo_type == "crack" else "crack"
                     st.rerun()
                 if bb2.button("기공 시연", key="demo_porosity", width="stretch"):

@@ -24,7 +24,7 @@ SPECIFICITY = pd.DataFrame({
 AUC = pd.DataFrame({
     "클래스": CLASSES,
     "PR-AUC(Mobile)": [0.825, 0.858, 0.770, 0.975],
-    "PR-AUC(EffNet)": [0.912, 0.952, 0.849, 0.988],
+    "PR-AUC(EffNet)": [0.9050, 0.9921, 0.6272, 0.9983],
     "ROC-AUC(EffNet)": [0.962, 0.990, 0.948, 0.996],
 })
 
@@ -70,7 +70,7 @@ def render():
     c1, c2, c3 = st.columns(3)
     c1.metric("HOG + 로지스틱회귀", "43%", help="전통 기법 하한선 · 1회 평가")
     c2.metric("MobileNetV2", "81.7%", help="5-fold 평균")
-    c3.metric("EfficientNetB0 (채택)", "87.2%", help="5-fold 평균 · 최종 채택")
+    c3.metric("EfficientNetB0 (채택)", "88.87%", help="OOF 15,348장 전체 기준 · finetune · 최종 채택")
 
     st.divider()
 
@@ -103,9 +103,9 @@ def render():
         st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
     st.caption("클래스 불균형 상황에서 ROC는 낙관적으로 보이는 경향이 있어, 실제 라인처럼 불량률이 낮을 때는 PR 지표를 우선 판단 근거로 삼습니다.")
 
-    st.subheader("fold1 혼동행렬 — D1↔D4 오분류 확인")
+    st.subheader("OOF 혼동행렬 — D1↔D4 오분류 확인 (15,348장 · 교차보정 + Saerens argmax)")
     cm = pd.DataFrame(
-        [[79, 22, 425, 0], [0, 301, 8, 2], [18, 1, 1025, 0], [0, 0, 0, 737]],
+        [[3631, 60, 1074, 13], [156, 3702, 30, 110], [403, 77, 2239, 207], [0, 4, 80, 3562]],
         index=["실제 D1", "실제 D2", "실제 D4", "실제 ND"],
         columns=["예측 D1", "예측 D2", "예측 D4", "예측 ND"],
     )
@@ -113,7 +113,8 @@ def render():
     fig.update_layout(height=340, margin=dict(l=10, r=10, t=10, b=10), font=CHART_FONT,
                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
-    st.error("D1 행만 대각선(79)보다 오분류 칸(425, D4로 오분류)이 훨씬 큽니다 — fold1 검증셋의 필름 쏠림이 원인으로 추정되며, 균열·용입불량 통합 판정의 직접적 계기입니다.")
+    st.error("D1 → D4 오진 1,074건(22.5%), D4 → D1 오진 403건(13.8%): 균열과 용입불량의 외형 유사성이 균열·용입불량 1차 선별의 근거입니다. "
+             "D4 → ND 오진 207건(7.1%)은 미검출 위험이 가장 큰 구간입니다.")
 
     st.divider()
 

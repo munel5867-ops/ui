@@ -11,7 +11,7 @@ from PIL import Image
 
 from utils.dummy_data import demo_single_prediction, make_mock_gradcam_overlay
 from utils.ncr_report import ncr_bytes_for_case
-from utils.routing import DEFAULT_THRESHOLDS, classify
+from utils.routing import ATTENTION_STATUSES, CLASS_KEYS, DEFAULT_THRESHOLDS, classify
 from utils.style import CLASS_COLORS, STATUS_COLORS, status_badge
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -19,17 +19,23 @@ SAMPLES_DIR = PROJECT_ROOT / "samples"
 DECISION_LOG = PROJECT_ROOT / "decision_log.csv"
 
 REASON = {
-    "auto_pass": "판정 근거: 무결함 확률 임계값 초과",
+    "auto_pass": "판정 근거: 균열·용입불량 점수 {crack_t} 미만, 양품 ≥ 기공",
     "attention_crack": "판정 근거: 균열·용입불량이 둘 다 의심 수준으로 높음 — 안전장치로 사람 확인",
-    "auto_reject": "판정 근거: 균열/용입불량 확률이 임계값을 넘고, margin도 충분해 세부유형까지 확정",
-    "attention_margin": "판정 근거: 임계값은 넘었지만 균열/용입불량 확신도(margin)가 부족해 사람 확인",
+    "auto_reject": "판정 근거: 균열·용입불량은 margin {margin_t} 이상으로 유형 확정, 기공은 기공 > 양품으로 판정",
+    "attention_margin": "판정 근거: 균열·용입불량 점수는 높지만 margin {margin_t} 미만 — 추정 유형을 참고해 사람 확인",
     "attention": "판정 근거: 애매 구간 (임계값 미도달)",
 }
+
+
+def _reason(status: str, thresholds: dict) -> str:
+    crack_t = thresholds.get("crack_t", DEFAULT_THRESHOLDS["crack_t"])
+    margin_t = thresholds.get("margin_threshold", DEFAULT_THRESHOLDS["margin_threshold"])
+    return REASON[status].format(crack_t=f"{crack_t:.4f}", margin_t=f"{margin_t:.0f}")
 
 STATUS_ICON = {
     "auto_pass": "✅ 자동 통과",
     "attention": "⚠ 사람 확인",
-    "attention_crack": "⚠ 사람 확인 · 균열계열 의심",
+    "attention_crack": "⚠ 사람 확인 · 균열·용입불량 의심",
     "attention_margin": "⚠ 사람 확인 · 균열/용입불량 경계 모호",
     "auto_reject": "⛔ 자동 배출",
 }
@@ -133,6 +139,7 @@ def _log_decision(source: str, probs: dict, status: str, label: str | None, deci
 
 
 def _prob_bar_chart(probs: dict) -> go.Figure:
+    probs = {k: probs[k] for k in CLASS_KEYS}  # 내부용 키(crack_score 등)는 그리지 않는다
     labels = list(probs.keys())
     values = list(probs.values())
     colors = [CLASS_COLORS.get(l, "#2a78d6") for l in labels]
@@ -289,14 +296,14 @@ def render():
 
                 st.plotly_chart(_prob_bar_chart(probs), width="stretch", config={"displayModeBar": False})
 
-                status, label = classify(
-                    probs["무결함"], probs["균열(D1)"], probs["용입불량(D4)"], thresholds
-                )
+                status, label = classify(probs, thresholds)
                 badge_html = status_badge(status)
                 if label:
-                    badge_html += f' <span style="margin-left:8px;font-weight:700;">→ {label}</span>'
+                    # 사람 확인(attention_margin)의 유형은 확정이 아니라 추정이라 "추정"을 붙인다.
+                    suffix = " 추정" if status == "attention_margin" else ""
+                    badge_html += f' <span style="margin-left:8px;font-weight:700;">→ {label}{suffix}</span>'
                 st.markdown(badge_html, unsafe_allow_html=True)
-                st.caption(REASON[status])
+                st.caption(_reason(status, thresholds))
 
                 if pil_image is not None:
                     hist_key = (batch_key, st.session_state["demo_idx"])
@@ -305,11 +312,11 @@ def render():
                         st.session_state.setdefault("history", [])
                         st.session_state["history"].append({
                             "name": current_name, "thumb": _thumbnail_bytes(image_bytes),
-                            "probs": probs, "status": status, "label": label,
+                            "probs": {k: probs[k] for k in CLASS_KEYS}, "status": status, "label": label,
                         })
                         st.session_state["history"] = st.session_state["history"][-HISTORY_MAX:]
 
-                if pil_image is not None and status in ("attention", "attention_crack", "attention_margin"):
+                if pil_image is not None and status in ATTENTION_STATUSES:
                     st.divider()
                     st.caption("AI가 애매하다고 본 건만 — 검사자 결정을 기록합니다 (재학습 라벨 후보).")
                     if st.session_state["demo_playing"]:
@@ -322,7 +329,7 @@ def render():
                     if b2.button("⛔ 반려", key="reject_btn", width="stretch",
                                   disabled=st.session_state["demo_playing"]):
                         _log_decision(source, probs, status, label, "반려(불량)")
-                        defect_probs = {k: v for k, v in probs.items() if k != "무결함"}
+                        defect_probs = {k: v for k, v in probs.items() if k in CLASS_KEYS and k != "무결함"}
                         dominant_class = max(defect_probs, key=defect_probs.get)
                         ncr_bytes, ncr_name = ncr_bytes_for_case(
                             {"image_id": source, "dominant_class": dominant_class,
@@ -355,7 +362,7 @@ def render():
                     with hcols[j]:
                         # "사람 확인 필요" 계열(attention*)만 빨강/주황 테두리로 강조.
                         # auto_pass/auto_reject는 이미 자동으로 확정된 케이스라 강조 안 함.
-                        needs_review = rec["status"] in ("attention", "attention_crack", "attention_margin")
+                        needs_review = rec["status"] in ATTENTION_STATUSES
                         border_color = STATUS_COLORS[rec["status"]]["bg"] if needs_review else "transparent"
                         thumb_b64 = base64.b64encode(rec["thumb"]).decode()
                         st.markdown(
@@ -371,7 +378,8 @@ def render():
                             f"**{rec['name']}**  \n"
                             f"{top_label} {top_val:.0%}  \n"
                             f"{STATUS_ICON.get(rec['status'], rec['status'])}"
-                            + (f" ({rec['label']})" if rec.get("label") else "")
+                            + (f" ({rec['label']}{' 추정' if rec['status'] == 'attention_margin' else ''})"
+                               if rec.get("label") else "")
                         )
 
         if st.session_state["demo_playing"] and batch:
