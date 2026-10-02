@@ -21,8 +21,8 @@ DECISION_LOG = PROJECT_ROOT / "decision_log.csv"
 REASON = {
     "auto_pass": "판정 근거: 균열·용입불량 점수 {crack_t} 미만, 양품 ≥ 기공",
     "attention_crack": "판정 근거: 균열·용입불량이 둘 다 의심 수준으로 높음 — 안전장치로 사람 확인",
-    "auto_reject": "판정 근거: 균열·용입불량은 margin {margin_t} 이상으로 유형 확정, 기공은 기공 > 양품으로 판정",
-    "attention_margin": "판정 근거: 균열·용입불량 점수는 높지만 margin {margin_t} 미만 — 추정 유형을 참고해 사람 확인",
+    "auto_reject": "판정 근거: 균열·용입불량은 AI확신도 {margin_t} 이상으로 유형 확정, 기공은 기공 > 양품으로 판정",
+    "attention_margin": "판정 근거: 균열·용입불량 점수는 높지만 AI확신도 {margin_t} 미만  \n— 추정 유형을 참고해 사람 확인",
     "attention": "판정 근거: 애매 구간 (임계값 미도달)",
 }
 
@@ -344,7 +344,7 @@ def render():
                         )
                     if DECISION_LOG.exists():
                         n = sum(1 for _ in open(DECISION_LOG, encoding="utf-8-sig")) - 1
-                        st.caption(f"검사자 결정 누적: {n}건 (`decision_log.csv`)")
+                        st.caption(f"검사자 결정 누적: {n}건 (decision_log.csv 파일에 저장됨)")
 
         history = st.session_state.get("history", [])
         if history:

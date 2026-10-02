@@ -75,7 +75,7 @@ def weekly_report_summary(thresholds):
         "report_no": f"WEEKLY-{period_end.strftime('%Y%m%d')}",
         "product_text": (
             f"이번 주 전체 검사 물량 {total_count:,}건 "
-            f"(사람확인 {human_review_count:,}건 · Margin보류 {margin_hold_count:,}건)"
+            f"(사람확인 {human_review_count:,}건 · AI확신도 보류 {margin_hold_count:,}건)"
         ),
     }
 
@@ -183,7 +183,7 @@ def today_status_report_bytes(routing_summary, core_kpis, open_items, approved_n
     _cell(
         th_val,
         f"균열·용입불량 점수 ≥ {thresholds.get('crack_t', DEFAULT_THRESHOLDS['crack_t']):.4f}   ·   "
-        f"margin ≥ {thresholds.get('margin_threshold', DEFAULT_THRESHOLDS['margin_threshold']):.0f}",
+        f"AI확신도 ≥ {thresholds.get('margin_threshold', DEFAULT_THRESHOLDS['margin_threshold']):.0f}",
     )
     for r in range(2):
         for c in (0, 2):

@@ -50,10 +50,10 @@ def render():
     with col1:
         with st.container(border=True):
             st.subheader("라우팅 임계값 조절")
-            st.caption("균열·용입불량 점수로 1차 선별하고, 유형 확신도(margin)가 부족하면 추정 유형과 함께 사람 확인으로 보냅니다.")
+            st.caption("균열·용입불량 점수로 1차 선별하고, 유형 AI확신도가 부족하면 추정 유형과 함께 사람 확인으로 보냅니다.")
             _linked_slider_number("CRACK_T (균열·용입불량 1차 선별 기준)", "crack_t", thresholds, 0.00, 1.00,
                                   step=0.0001, fmt="%.4f")
-            _linked_slider_number("MARGIN_T (균열/용입불량 확정 margin 기준, %)", "margin_threshold", thresholds, 0.0, 100.0, step=1.0)
+            _linked_slider_number("AI확신도 (균열/용입불량 확정 기준, %)", "margin_threshold", thresholds, 0.0, 100.0, step=1.0)
 
     with col2:
         with st.container(border=True):
@@ -72,7 +72,7 @@ def render():
                        delta=None if kpis["d4_miss_rate"] == 0 else "주의", delta_color="inverse")
 
             m5, m6 = st.columns(2)
-            m5.metric("Margin 부족으로 보류된 비율", f"{kpis['margin_hold_rate']:.1%}")
+            m5.metric("AI확신도 부족으로 보류된 비율", f"{kpis['margin_hold_rate']:.1%}")
 
             st.caption(f"검증셋 {kpis['n']:,}건 기준 (현재 더미 검증셋)")
 
